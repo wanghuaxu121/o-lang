@@ -2299,6 +2299,7 @@ struct CEmit {
     map<string,string> pvar;                     // 值参数 -> C 局部变量名（寄存器化）
     map<string,int> pty;                         // 值参数/局部变量 -> 类型下标
     const vector<SP>* curBody = 0;               // 当前函数体（局部变量逃逸分析用）
+    vector<char> needFp;                         // 每个函数是否需要 _fp（有内存槽才需要）
 
     CEmit() : globals(0), ip(0), ind(0), curRetTy(-1), inMain(false), loopDepth(0), bad(false) {}
 
@@ -2498,8 +2499,10 @@ struct CEmit {
                 bool wantD = (i < f.paramTy.size()) && isF(f.paramTy[i]);
                 call += wantD ? ("((double)(" + asD(args[i]) + "))") : ("((int64_t)(" + asI(args[i]) + "))");
             }
-            if (!args.empty()) call += ", ";
-            call += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
+            if (needFp[fi]) {
+                if (!args.empty()) call += ", ";
+                call += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
+            }
             call += ")";
             string val = isF(resultTy) ? ("((double)(" + call + "))") : ("((int64_t)(" + call + "))");
             chain = "(" + idxEx + " == " + fmt("%lld", (long long)fi) + " ? " + val + " : " + chain + ")";
@@ -2542,8 +2545,10 @@ struct CEmit {
                 s += wantD ? ("((double)(" + asD(args[i]) + "))") : ("((int64_t)(" + asI(args[i]) + "))");
             }
         }
-        if (!args.empty()) s += ", ";
-        s += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
+        if (needFp[it->second]) {
+            if (!args.empty()) s += ", ";
+            s += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
+        }
         return s + ")";
     }
 
@@ -2848,6 +2853,34 @@ struct CEmit {
         return "";
     }
 
+    // 局部变量是否会占用内存槽（与 stmt() 里的寄存器化条件保持一致）
+    bool localsNeedFrame(const vector<SP>& body, const vector<SP>& fnBody) {
+        for (size_t i = 0; i < body.size(); ++i) {
+            SP s = body[i];
+            if (s->k == Stmt::DeclS && s->decl && !s->decl->isFn && !s->decl->isType) {
+                DP d = s->decl;
+                int kd = gTypes.kindOf(d->ty);
+                bool simple = (kd != TY_STRUCT && kd != TY_FN && kd != TY_STR
+                               && d->elems == 1 && gTypes.cellsOf(d->ty) == 1);
+                if (!simple || escBody(fnBody, d->name)) return true;
+            }
+            if ((s->k == Stmt::IfS || s->k == Stmt::WhileS) && localsNeedFrame(s->body, fnBody)) return true;
+        }
+        return false;
+    }
+
+    bool fnNeedsFrame(const Func& fn) {
+        for (size_t k = 0; k < fn.params.size(); ++k) {
+            bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
+            int kd = gTypes.kindOf(fn.paramTy[k]);
+            if (rf || kd == TY_STRUCT || kd == TY_FN || kd == TY_STR
+                || gTypes.cellsOf(fn.paramTy[k]) != 1
+                || escBody(fn.body, fn.params[k]))
+                return true;
+        }
+        return localsNeedFrame(fn.body, fn.body);
+    }
+
     string emit(Interp& I, const vector<DP>& topDecls, const vector<SP>& mainBody) {
         globals = &I.globals;
         ip = &I;
@@ -2886,6 +2919,9 @@ struct CEmit {
         }
 
         // topDecls 的初值在 main() 开头按源码顺序补发（见下方「静态初始化」）
+        needFp.assign(I.funcs.size(), 0);
+        for (size_t i = 0; i < I.funcs.size(); ++i) needFp[i] = fnNeedsFrame(I.funcs[i]);
+
         // 2) 前向声明（按下标命名：o_f0, o_f1, …）
         for (size_t i = 0; i < I.funcs.size(); ++i) {
             const Func& fn = I.funcs[i];
@@ -2895,8 +2931,7 @@ struct CEmit {
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
                 sig += (rf ? string("int64_t") : cTypeOf(fn.paramTy[k])) + " _p" + fmt("%lld", (long long)k);
             }
-            if (!fn.params.empty()) sig += ", ";
-            sig += "int _fp";
+            if (needFp[i]) { if (!fn.params.empty()) sig += ", "; sig += "int _fp"; }
             o += sig + ");\n";
         }
         o += "\n";
@@ -2930,13 +2965,13 @@ struct CEmit {
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
                 sig += (rf ? string("int64_t") : cTypeOf(fn.paramTy[k])) + " _p" + fmt("%lld", (long long)k);
             }
-            if (!fn.params.empty()) sig += ", ";
-            sig += "int _fp";
+            if (needFp[i]) { if (!fn.params.empty()) sig += ", "; sig += "int _fp"; }
             sig += ") {";
             put(sig);
             ind++;
-            // 帧基址由调用方传入（_fp），全程不碰全局栈指针
-            put("if (_fp < _SBASE) { fprintf(stderr, \"错误: 栈溢出（静态区已占 %d 个单元）\\n\", (int)_SBASE); exit(2); }");
+            // 有内存槽的函数才需要帧基址与栈界检查；全寄存器化的函数两者都省掉
+            if (needFp[i])
+                put("if (_fp < _SBASE) { fprintf(stderr, \"错误: 栈溢出（静态区已占 %d 个单元）\\n\", (int)_SBASE); exit(2); }");
             for (size_t k = 0; k < fn.params.size(); ++k) {
                 string dst = "_mem[_fp + " + fmt("%lld", (long long)fn.paramOfs[k]) + "]";
                 string src = "_p" + fmt("%lld", (long long)k);
