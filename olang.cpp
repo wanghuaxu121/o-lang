@@ -2449,6 +2449,27 @@ struct CEmit {
         string s = rv(e);
         return isF(e->ty) ? "((int64_t)(" + s + "))" : s;
     }
+
+    // 32 位整数表达式：寄存器局部/参数直接用 int32，其余在运算点收窄
+    string asI32(EP e) {
+        if (gTypes.kindOf(e->ty) == TY_INT) {
+            if (e->k == Expr::Num && !e->isFlt) return "((int32_t)" + fmt("%lld", e->num) + ")";
+            if (e->k == Expr::RefE && plainRef(e) && pvar.find(e->s) != pvar.end()
+                && !isF(pty[e->s]))
+                return pvar[e->s];
+            if (e->k == Expr::BinE && e->op != T_ASSIGN && e->op != T_AND && e->op != T_OR) {
+                const char* op = 0;
+                switch (e->op) {
+                case T_PLUS: op = "+"; break;  case T_MINUS: op = "-"; break;
+                case T_STAR: op = "*"; break;  case T_SLASH: op = "/"; break;
+                case T_PERCENT: op = "%"; break;
+                default: op = 0;
+                }
+                if (op) return "((int32_t)(" + asI32(e->a) + " " + op + " " + asI32(e->b) + "))";
+            }
+        }
+        return "((int32_t)(" + rv(e) + "))";
+    }
     string asD(EP e) {
         string s = rv(e);
         return isF(e->ty) ? s : "((double)(" + s + "))";
@@ -2641,7 +2662,7 @@ struct CEmit {
                 string x = "(" + asD(e->a) + " " + op + " " + asD(e->b) + ")";
                 return isF(e->ty) ? x : ("((int64_t)(" + x + "))");
             }
-            string x = "((int32_t)(" + asI(e->a) + ") " + op + " (int32_t)(" + asI(e->b) + "))";
+            string x = "(" + asI32(e->a) + " " + op + " " + asI32(e->b) + ")";
             return isF(e->ty) ? ("((double)(" + x + "))") : ("((int64_t)(" + x + "))");
         }
         }
@@ -2669,11 +2690,11 @@ struct CEmit {
                     bool isDbl = isF(d->ty);
                     pvar[d->name] = v; pty[d->name] = d->ty;
                     if (d->init && d->init->k != Expr::ListE) {
-                        put(string(isDbl ? "double " : "int64_t ") + v + " = " +
+                        put(string(isDbl ? "double " : "int32_t ") + v + " = " +
                             (isDbl ? ("(double)(" + asD(d->init) + ")")
-                                   : storeCast(d->ty, asI(d->init))) + ";");
+                                   : ("(int32_t)(" + asI(d->init) + ")")) + ";");
                     } else {
-                        put(string(isDbl ? "double " : "int64_t ") + v + " = 0;");
+                        put(string(isDbl ? "double " : "int32_t ") + v + " = 0;");
                     }
                     return;
                 }
@@ -2924,7 +2945,7 @@ struct CEmit {
                     string v = "_v" + fmt("%lld", (long long)k);
                     pvar[fn.params[k]] = v; pty[fn.params[k]] = fn.paramTy[k];
                     if (isF(fn.paramTy[k])) put("double " + v + " = (double)(" + src + ");");
-                    else put("int64_t " + v + " = " + storeCast(fn.paramTy[k], src) + ";");
+                    else put("int32_t " + v + " = (int32_t)(" + src + ");");
                 }
                 else if (rf) put(dst + ".i = (int64_t)(" + src + ");");
                 else if (isF(fn.paramTy[k])) put(dst + ".d = (double)(" + src + ");");
