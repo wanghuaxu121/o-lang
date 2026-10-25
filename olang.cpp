@@ -2292,8 +2292,8 @@ struct CEmit {
         string a;
         map<string, VarInfo>::iterator li = loc.find(e->s);
         if (li != loc.end()) {
-            if (li->second.isRef) a = "((int64_t)_mem[_sp + " + fmt("%lld", li->second.addr) + "].i)";
-            else a = "(_sp + " + fmt("%lld", li->second.addr) + ")";
+            if (li->second.isRef) a = "((int64_t)_mem[_fp + " + fmt("%lld", li->second.addr) + "].i)";
+            else a = "(_fp + " + fmt("%lld", li->second.addr) + ")";
             vty = li->second.ty;
         } else {
             map<string, VarInfo>::const_iterator gi = globals->find(e->s);
@@ -2413,6 +2413,8 @@ struct CEmit {
                 bool wantD = (i < f.paramTy.size()) && isF(f.paramTy[i]);
                 call += wantD ? ("((double)(" + asD(args[i]) + "))") : ("((int64_t)(" + asI(args[i]) + "))");
             }
+            if (!args.empty()) call += ", ";
+            call += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
             call += ")";
             string val = isF(resultTy) ? ("((double)(" + call + "))") : ("((int64_t)(" + call + "))");
             chain = "(" + idxEx + " == " + fmt("%lld", (long long)fi) + " ? " + val + " : " + chain + ")";
@@ -2442,6 +2444,7 @@ struct CEmit {
         }
         const Func& f = ip->funcs[it->second];
         string s = fname((size_t)it->second) + "(";
+        (void)0;
         for (size_t i = 0; i < args.size(); ++i) {
             if (i) s += ", ";
             bool rf = (i < f.paramRef.size() && f.paramRef[i]);
@@ -2454,6 +2457,8 @@ struct CEmit {
                 s += wantD ? ("((double)(" + asD(args[i]) + "))") : ("((int64_t)(" + asI(args[i]) + "))");
             }
         }
+        if (!args.empty()) s += ", ";
+        s += (inMain ? string("_SP_TOP") : string("_fp")) + " - " + fmt("%lld", (long long)f.frameSize);
         return s + ")";
     }
 
@@ -2576,7 +2581,7 @@ struct CEmit {
             if (d->isFn || d->isType) return;
             string ad;
             map<string, VarInfo>::iterator li = loc.find(d->name);
-            if (li != loc.end()) ad = "(_sp + " + fmt("%lld", li->second.addr) + ")";
+            if (li != loc.end()) ad = "(_fp + " + fmt("%lld", li->second.addr) + ")";
             else ad = "(" + fmt("%lld", d->addr) + ")";
             if (d->init) {
                 const TypeInfo& ti0 = gTypes.at(d->ty);
@@ -2730,7 +2735,7 @@ struct CEmit {
         o += "\n";
         o += "typedef union { long long i; double d; } Cell;\n";
         o += "static Cell _mem[" + fmt("%lld", (long long)I.memSize) + "];\n";
-        o += "static int _sp = " + fmt("%lld", (long long)I.memSize) + ";\n";
+        o += "#define _SP_TOP " + fmt("%lld", (long long)I.memSize) + "\n";
         // 静态区上界：栈往下长，越过它就是踩静态变量（解释器在 callFunc 里同样检查）
         o += "#define _SBASE " + fmt("%lld", (long long)I.staticBase) + "\n\n";
         // 库函数前置（必须在 _mem 之后：read/write 要直接访问内存）
@@ -2754,6 +2759,8 @@ struct CEmit {
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
                 sig += (rf ? string("int64_t") : cTypeOf(fn.paramTy[k])) + " _p" + fmt("%lld", (long long)k);
             }
+            if (!fn.params.empty()) sig += ", ";
+            sig += "int _fp";
             o += sig + ");\n";
         }
         o += "\n";
@@ -2786,15 +2793,15 @@ struct CEmit {
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
                 sig += (rf ? string("int64_t") : cTypeOf(fn.paramTy[k])) + " _p" + fmt("%lld", (long long)k);
             }
+            if (!fn.params.empty()) sig += ", ";
+            sig += "int _fp";
             sig += ") {";
             put(sig);
             ind++;
-            put("int _sp0 = _sp;");
-            if (fn.frameSize > 0) put("_sp -= " + fmt("%lld", fn.frameSize) + ";");
-            // 栈越界检查：与解释器同样报错退出（exit 2），而不是静默踩静态区
-            put("if (_sp < _SBASE) { fprintf(stderr, \"错误: 栈溢出（静态区已占 %d 个单元）\\n\", (int)_SBASE); exit(2); }");
+            // 帧基址由调用方传入（_fp），全程不碰全局栈指针
+            put("if (_fp < _SBASE) { fprintf(stderr, \"错误: 栈溢出（静态区已占 %d 个单元）\\n\", (int)_SBASE); exit(2); }");
             for (size_t k = 0; k < fn.params.size(); ++k) {
-                string dst = "_mem[_sp + " + fmt("%lld", (long long)fn.paramOfs[k]) + "]";
+                string dst = "_mem[_fp + " + fmt("%lld", (long long)fn.paramOfs[k]) + "]";
                 string src = "_p" + fmt("%lld", (long long)k);
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
                 if (reg[k]) {                                  // 不逃逸的值参数：留在 C 寄存器
@@ -2810,7 +2817,6 @@ struct CEmit {
             put(retCT + " _ret = 0;");
             block(fn.body);
             put(lend + ":");
-            put("_sp = _sp0;");
             put("return _ret;");
             ind--;
             put("}");
@@ -2826,7 +2832,7 @@ struct CEmit {
         put("int main(void) {");
         ind++;
         // 标记已使用：只做 I/O 的程序否则在 -Wall 下报 _mem/_sp unused-variable
-        put("(void)_mem; (void)_sp;");
+        put("(void)_mem;");
         // 静态初始化：顶层声明的初值按源码顺序（与解释器一致，含 fn 的 -1 与数组补零）
         for (size_t i = 0; i < topDecls.size(); ++i) {
             DP d = topDecls[i];

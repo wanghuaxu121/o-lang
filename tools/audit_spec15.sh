@@ -83,20 +83,26 @@ for f in examples/hello.o examples/sms.o examples/report.o; do
 done
 [ $w -eq 0 ] && ok 9 "生成 C 在 gcc -std=c11 -O2 -Wall 下 0 warning" || no 9 "codegen 有 $w 个 warning"
 
-# 10 性能（fib(30)，含进程启动，故放宽到 1.5×）
-printf '#include <stdio.h>\n#include <stdint.h>\nstatic int64_t f(int64_t n){return n<3?1:f(n-1)+f(n-2);}\nint main(void){printf("%%d\\n",(int)f(36));return 0;}\n' > "$T/hand.c"
-gcc -O2 -w -o "$T/hand" "$T/hand.c"
-TIMEFORMAT='%3R'
-best() { local c="$1" m=99 r; for _ in 1 2 3; do r=$( { time $c >/dev/null 2>&1; } 2>&1 ); m=$(python3 -c "print(min($m,$r))" 2>/dev/null || echo $m); done; echo $m; }
-# fib(30) 在本机被 100 ms 进程启动淹没，改用 fib(36) 才能量到 codegen 差异
+# 10 性能：fib(36) 生成代码 vs 手写 C（含进程启动，比值含固定开销）
 sed 's/{30}/{36}/' examples/fib.o > "$T/fib36.o"
 "$BIN" "$T/fib36.o" --emit-c > "$T/fib.c" 2>/dev/null
 gcc -std=c11 -O2 -w -o "$T/fibgen" "$T/fib.c"
-g=$(best "$T/fibgen"); h=$(best "$T/hand")
-ratio=$(python3 -c "print(round(float('$g')/float('$h'),2))" 2>/dev/null || echo "?")
-python3 -c "import sys; sys.exit(0 if float('$g')<=float('$h')*1.2 else 1)" 2>/dev/null \
-    && ok 10 "fib(36) 生成 C ${g}s vs 手写 C ${h}s（${ratio}×，SPEC 要求 ≤1.2×）" \
-    || maybe 10 "fib(36) ${g}s vs 手写 C ${h}s（${ratio}×，超过 SPEC 的 1.2×）"
+printf '#include <stdio.h>\n#include <stdint.h>\nstatic int64_t f(int64_t n){return n<3?1:f(n-1)+f(n-2);}\nint main(void){printf("%%d\\n",(int)f(36));return 0;}\n' > "$T/hand.c"
+gcc -O2 -w -o "$T/hand" "$T/hand.c"
+printf 'int main(void){return 0;}\n' > "$T/empty.c" && gcc -O2 -w -o "$T/empty" "$T/empty.c"
+TIMEFORMAT='%3R'
+# 交错测量：两个二进制轮流转，避免系统负载漂移把比值带偏
+g=99; h=99; e=99
+for _ in 1 2 3 4 5; do
+    r=$( { time "$T/fibgen" >/dev/null 2>&1; } 2>&1 ); g=$(python3 -c "print(min($g,$r))")
+    r=$( { time "$T/hand"   >/dev/null 2>&1; } 2>&1 ); h=$(python3 -c "print(min($h,$r))")
+    r=$( { time "$T/empty"  >/dev/null 2>&1; } 2>&1 ); e=$(python3 -c "print(min($e,$r))")
+done
+# 扣掉进程启动：SPEC 的「运行时间」指计算时间，本机启动开销 ~0.1 s 会淹没 fib(36)
+ratio=$(python3 -c "print(round(($g-$e)/($h-$e),2))" 2>/dev/null || echo "?")
+python3 -c "import sys; sys.exit(0 if ($g-$e)<=($h-$e)*1.2 else 1)" 2>/dev/null \
+    && ok 10 "fib(36) 生成 C ${g}s vs 手写 C ${h}s（扣启动 ${e}s → ${ratio}×，SPEC 要求 ≤1.2×）" \
+    || maybe 10 "fib(36) ${g}s vs 手写 C ${h}s（扣启动 ${e}s → ${ratio}×，超过 1.2×）"
 
 # 11 缺返回值
 "$BIN" tests/err/e05_noret.o >/dev/null 2>&1 && no 11 "缺返回值未报错" || ok 11 "函数末尾没有 ?{} 报错"
