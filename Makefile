@@ -5,7 +5,7 @@ BIN      := olang
 SRC      := olang.cpp
 
 GIT     := $(shell git describe --tags --always --dirty 2>/dev/null)
-VERSION := 1.1.0-dev$(if $(GIT),+$(GIT))
+ VERSION := 1.1.0$(if $(GIT),+$(GIT))
 
 .PHONY: all build test fast audit coverage check clean version demo
 

@@ -42,7 +42,7 @@
 using namespace std;
 
 #ifndef OLANG_VERSION
-#define OLANG_VERSION "1.1.0-dev"
+#define OLANG_VERSION "1.1.0"
 #endif
 
 enum { MEM_SIZE = 1024 };          // 默认地址空间（可被 #mem 或 --mem-size 覆盖）
@@ -2990,7 +2990,7 @@ int main(int argc, char** argv) {
 #elif defined(__VERSION__)
         printf("compiler gcc %s\n", __VERSION__);
 #endif
-        printf("spec     SPEC v1.1-dev（见 SPEC.md）\n");
+        printf("spec     SPEC v1.1（见 SPEC.md）\n");
         return 0;
     }
     if (argc < 2 || string(argv[1]) == "-h" || string(argv[1]) == "--help") {
