@@ -28,7 +28,8 @@ for f in examples/*.o; do
     exp="examples/$n.expected"
     [ -f "$exp" ] || continue
     if [ "$n" = "fib" ] && [ $FAST = 1 ]; then echo "[SKIP] fib          （--fast）"; skip=$((skip+1)); continue; fi
-    got=$(timeout 120 "$BIN" "$f" </dev/null 2>&1 | norm)
+    fin=/dev/null; [ -f "${f%.o}.in" ] && fin="${f%.o}.in"
+    got=$(timeout 120 "$BIN" "$f" < "$fin" 2>&1 | norm)
     want=$(norm < "$exp")
     if [ "$got" = "$want" ]; then pass=$((pass+1)); echo "[ OK ] $n"
     else fail=$((fail+1)); echo "[FAIL] $n"; echo "   期望: $want"; echo "   实际: $got"; fi

@@ -1,0 +1,8 @@
+// SPEC §5.5
+// 探针：str 输入（stdin 为空 → 空串）
+O{
+    &{str;s} = {}
+    ,{str; ${s}}
+    .{int; ${s}.len{}}
+    .{str; "\n"}
+}

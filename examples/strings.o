@@ -1,0 +1,22 @@
+// SPEC §5.5：字符串 len / 拼接 / 输入
+O{
+    &{str;a} = {"hello"}
+    &{str;b} = {" world"}
+    &{str;c} = {}
+
+    .{int; ${a}.len{}}
+    .{str; " | "}
+
+    ${c} = ${a} + ${b}
+    .{str; ${c}}
+    .{str; " | "}
+    .{int; ${c}.len{}}
+    .{str; "\n"}
+
+    &{str;line} = {}
+    ,{str; ${line}}
+    .{int; ${line}.len{}}
+    .{str; " ["}
+    .{str; ${line}}
+    .{str; "]\n"}
+}

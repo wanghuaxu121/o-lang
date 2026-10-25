@@ -1,0 +1,14 @@
+// SPEC §5.5
+// 探针：str 的 len{} 与拼接 +
+O{
+    &{str;a} = {"hello"}
+    &{str;b} = {" world"}
+    &{str;c} = {}
+    .{int; ${a}.len{}}
+    .{str; " "}
+    ${c} = ${a} + ${b}
+    .{str; ${c}}
+    .{str; " "}
+    .{int; ${c}.len{}}
+    .{str; "\n"}
+}

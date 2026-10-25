@@ -200,3 +200,18 @@ olang examples/report.o > report.html
 但**不足以让 §15.10 达标**。审计脚本已改用 fib(40)、best-of-3、扣启动。
 
 下一步要进 1.2×，需要类型定向 codegen：int 运算用 int32 原生、尾位置直接 return（去掉 `_ret`/`goto`）。
+
+### 十九、字符串操作（Phase 4 第一步，SPEC §5.5）
+
+新增三个操作，双后端一致：
+
+| 操作 | 解释器 | C 后端 |
+|---|---|---|
+| `${s}.len{}` | 字符串池内容的 `.size()` | `strlen()` |
+| `${a} + ${b}` | 池里追加拼接结果 | `n_strcat()`（64 KB arena bump 分配） |
+| `,{str; ${s}}` | `getline` → 入池 | `n_readline()`（fgets + 去行尾） |
+
+- 标注期规则：str 只允许 `==`/`!=`/`+`，其余运算仍是编译错误；`.len{}` 只能用于 str
+- `e11_str_in`（原来“str 输入应报错”）已删除，新增 `p_str_ops` / `p_str_input` 探针
+- `run_tests.sh` 支持 `examples/*.in` 作为 stdin（新增 `strings.o` + `strings.in`）
+- SPEC 升到 **v1.1-dev**，新增 §5.5；全套 **88/88**

@@ -1035,6 +1035,13 @@ struct Parser {
                     expect(T_RBRACE, "'}'");
                     continue;
                 }
+                if (is(T_ID) && cur.s == "len" && nxt.k == T_LBRACE) {   // str 长度（字节数）
+                    advance();
+                    e->method = "len";
+                    advance();
+                    expect(T_RBRACE, "'}'");
+                    continue;
+                }
                 if (is(T_ID) && cur.s == "as" && nxt.k == T_LBRACE) {
                     advance();
                     advance();                                // {
@@ -1327,6 +1334,11 @@ struct Interp {
             // ${a}.size{} = 数组长度；${a}{i}.size{} / ${p}.f.size{} = 1（单元素）
             bool single = !e->kids.empty() || !e->fields.empty();
             return mkIntV(single ? 1 : vi->elems);
+        }
+        if (e->method == "len") {
+            Val v0 = readCell(addr, ty, e->line);
+            if (v0.ty != TY_STR) throw Err(".len{} 只能用于 str", e->line);
+            return mkIntV((long long)strAt(v0.i).size());
         }
         Val v = readCell(addr, ty, e->line);
         if (e->hasCast) {
@@ -1720,10 +1732,11 @@ Val Interp::eval(EP e) {
         if (e->op == T_OR) return mkBoolV(isTrueV(l) || isTrueV(eval(e->b)) ? 1 : 0);
         Val r = eval(e->b);
 
-        // 字符串：只允许按内容比较相等性
+        // 字符串：按内容比较相等性；+ 为拼接
         if (l.ty == TY_STR || r.ty == TY_STR) {
             if (l.ty != TY_STR || r.ty != TY_STR) throw Err("str 不能与非字符串比较", e->line);
-            if (e->op != T_EQ && e->op != T_NE) throw Err("str 只能比较 == / !=", e->line);
+            if (e->op == T_PLUS) return mkStrV((long long)internStr(strAt(l.i) + strAt(r.i)));
+            if (e->op != T_EQ && e->op != T_NE) throw Err("str 只能比较 == / != 或拼接 +", e->line);
             bool eq = (strAt(l.i) == strAt(r.i));
             return mkBoolV(e->op == T_EQ ? (eq ? 1 : 0) : (eq ? 0 : 1));
         }
@@ -1807,6 +1820,10 @@ int Interp::annTy(EP e) {
             t = ft->second;
         }
         if (e->method == "size") return e->ty = gTypes.iInt;
+        if (e->method == "len") {
+            if (gTypes.kindOf(t) != TY_STR) throw Err(".len{} 只能用于 str", e->line);
+            return e->ty = gTypes.iInt;
+        }
         e->srcTy = t;
         if (e->hasCast) {
             if (gTypes.kindOf(t) == TY_STR && gTypes.kindOf(e->castTy) != TY_STR)
@@ -1895,6 +1912,13 @@ int Interp::annTy(EP e) {
             return e->ty = (gTypes.kindOf(lt) == TY_FLOAT ? gTypes.iDbl : lt);
         }
         int l = annTy(e->a), r = annTy(e->b);
+        if (gTypes.kindOf(l) == TY_STR || gTypes.kindOf(r) == TY_STR) {
+            if (gTypes.kindOf(l) != TY_STR || gTypes.kindOf(r) != TY_STR)
+                throw Err("str 不能与非字符串混合运算", e->line);
+            if (e->op == T_PLUS) return e->ty = gTypes.iStr;
+            if (e->op == T_EQ || e->op == T_NE) return e->ty = gTypes.iBool;
+            throw Err("str 只能比较 == / != 或拼接 +", e->line);
+        }
         if (e->op == T_PERCENT && (isFloatTy(l) || isFloatTy(r)))    // 浮点取模：标注期就报，两端一致
             throw Err("浮点不能取模（请先 .as{int}）", e->line);
         switch (e->op) {
@@ -2199,7 +2223,13 @@ void Interp::execInner(SP s) {
         if (!vi) throw Err("未定义的变量 '" + s->e->s + "'", s->line);
         int stride = gTypes.cellsOf(ty);
         int kind = gTypes.kindOf(ty);
-        if (kind == TY_STR) throw Err("不支持 ,{str; …} 输入（v0.8）", s->line);
+        if (kind == TY_STR) {
+            string line;
+            if (!getline(cin, line)) line = "";
+            markWrite(addr);
+            mem[addr].i = (long long)internStr(line);
+            return;
+        }
         for (int k = 0; k < s->elems; ++k) {
             int a = addr + k * stride;
             if (kind == TY_DBL || kind == TY_FLOAT) {
@@ -2476,6 +2506,16 @@ struct CEmit {
         case Expr::UnitE:
             return rv(e->a);
         case Expr::RefE: {
+            if (e->method == "len") {
+                string v;
+                if (e->kids.empty() && e->fields.empty() && pvar.find(e->s) != pvar.end())
+                    v = pvar[e->s];
+                else {
+                    int t2 = gTypes.iInt;
+                    v = "_mem[" + addrOf(e, t2) + "].i";
+                }
+                return "((int64_t)strlen((const char*)(intptr_t)(" + v + ")))";
+            }
             if (e->method == "size") {
                 if (!e->kids.empty() || !e->fields.empty()) return "((int64_t)1)";
                 map<string, VarInfo>::iterator li = loc.find(e->s);
@@ -2543,7 +2583,8 @@ struct CEmit {
                 string sb = "(const char*)(intptr_t)(" + asI(e->b) + ")";
                 if (e->op == T_EQ) return "((int64_t)(strcmp(" + sa + ", " + sb + ") == 0))";
                 if (e->op == T_NE) return "((int64_t)(strcmp(" + sa + ", " + sb + ") != 0))";
-                fail("str 只能比较 == / !=");
+                if (e->op == T_PLUS) return "((int64_t)(intptr_t)n_strcat(" + sa + ", " + sb + "))";
+                fail("str 只能比较 == / != 或拼接 +");
                 return "0";
             }
             const char* op = 0;
@@ -2710,7 +2751,7 @@ struct CEmit {
             if (s->elems != 1) { fail("C 后端暂不支持数组输入"); return; }
             int vty = gTypes.iInt;
             string ad = addrOf(s->e, vty);
-            if (gTypes.kindOf(vty) == TY_STR) { fail("C 后端暂不支持 ,{str; …} 输入"); return; }
+            if (gTypes.kindOf(vty) == TY_STR) { put("_mem[" + ad + "].i = n_readline();"); return; }
             if (isF(vty)) put("{ double _t; if (scanf(\"%lf\", &_t) != 1) return 2; _mem[" + ad + "].d = _t; }");
             else put("{ int _t; if (scanf(\"%d\", &_t) != 1) return 2; _mem[" + ad + "].i = " + storeCast(vty, "_t") + "; }");
             return;
@@ -2757,6 +2798,18 @@ struct CEmit {
         o += "typedef union { long long i; double d; } Cell;\n";
         o += "static Cell _mem[" + fmt("%lld", (long long)I.memSize) + "];\n";
         o += "#define _SP_TOP " + fmt("%lld", (long long)I.memSize) + "\n";
+        o += "static char _sarena[65536]; static int _stop = 0;\n";
+        o += "static int64_t n_strcat(const char* x, const char* y) {\n"
+
+             "  int n=(int)strlen(x), m=(int)strlen(y);\n"
+             "  if (_stop+n+m+1 > (int)sizeof(_sarena)) { fprintf(stderr, \"error: string arena full\\n\"); exit(2); }\n"
+             "  char* p=_sarena+_stop; memcpy(p,x,n); memcpy(p+n,y,m); p[n+m]=0; _stop+=n+m+1;\n"
+             "  return (int64_t)(intptr_t)p;\n}\n";
+        o += "static int64_t n_readline(void) {\n"
+             "  char tmp[1024]; if (!fgets(tmp,sizeof tmp,stdin)) tmp[0]=0;\n"
+             "  int n=(int)strlen(tmp); while (n>0 && (tmp[n-1]=='\\n'||tmp[n-1]=='\\r')) tmp[--n]=0;\n"
+             "  if (_stop+n+1 > (int)sizeof(_sarena)) { fprintf(stderr, \"error: string arena full\\n\"); exit(2); }\n"
+             "  char* p=_sarena+_stop; memcpy(p,tmp,n+1); _stop+=n+1; return (int64_t)(intptr_t)p;\n}\n";
         // 静态区上界：栈往下长，越过它就是踩静态变量（解释器在 callFunc 里同样检查）
         o += "#define _SBASE " + fmt("%lld", (long long)I.staticBase) + "\n\n";
         // 库函数前置（必须在 _mem 之后：read/write 要直接访问内存）
@@ -2855,7 +2908,7 @@ struct CEmit {
         put("int main(void) {");
         ind++;
         // 标记已使用：只做 I/O 的程序否则在 -Wall 下报 _mem/_sp unused-variable
-        put("(void)_mem;");
+        put("(void)_mem; (void)n_strcat; (void)n_readline;");
         // 静态初始化：顶层声明的初值按源码顺序（与解释器一致，含 fn 的 -1 与数组补零）
         for (size_t i = 0; i < topDecls.size(); ++i) {
             DP d = topDecls[i];
