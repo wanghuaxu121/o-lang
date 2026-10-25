@@ -1,0 +1,10 @@
+// bool 运算
+O{
+    &{bool;t} = {true}
+    .{bool; ${t} && ~{false}}
+    .{str; " "}
+    .{bool; ${t} || {false}}
+    .{str; " "}
+    .{bool; ~{true}}
+    .{str; "\n"}
+}

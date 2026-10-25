@@ -1,0 +1,2 @@
+&{struct;Point} = {{fn{int;int};cb}}
+O{ .{int; {0}} }

@@ -1,0 +1,6 @@
+// 探针5：fn{int;;int} 空段
+&{int;f} = o{{fn{int;;int};g}}{ ?{0} }
+
+O{
+    .{int; {0}}
+}

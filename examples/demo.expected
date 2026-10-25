@@ -1,0 +1,3 @@
+before: 5 3 9 1 7 2 8 4
+sorted: 1 2 3 4 5 7 8 9
+sum=39 min=1 max=9

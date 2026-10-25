@@ -1,0 +1,13 @@
+// 探针：字符串相等比较 + str.as{int}
+O{
+    &{str;a} = {"hello"}
+    &{str;b} = {"hello"}
+    (${a} == ${b}){
+        .{str; "eq\n"}
+    }
+    (${a} != ${b}){
+        .{str; "ne\n"}
+    }
+    .{int; ${a}.as{int}}
+    .{str; "\n"}
+}

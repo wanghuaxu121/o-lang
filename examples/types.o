@@ -1,0 +1,20 @@
+// SPEC §12.5：struct + double + bool + .as{}（C 后端与解释器共用此用例）
+&{struct;Point} = {{double;x}, {double;y}}
+
+O{
+    &{Point;p} = {Point{30}} = {}
+    ${p}.x = {1.5}
+    ${p}.y = {2.25}
+    .{double; ${p}.x + ${p}.y}
+    .{str; "\n"}
+
+    &{bool;ok} = {true}
+    .{bool; ${ok}}
+    .{str; "\n"}
+
+    &{double;d} = {2.5}
+    &{int;n} = {0}
+    ${n} = ${d}.as{int}
+    .{int; ${n}}
+    .{str; "\n"}
+}

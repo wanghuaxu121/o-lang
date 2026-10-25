@@ -1,0 +1,17 @@
+// struct 字面量：按字段声明顺序 {f1; f2; …}
+&{struct;Point} = {{double;x}, {double;y}}
+
+O{
+    &{Point;p} = {1.5; 2.25}
+    .{double; ${p}.x}
+    .{str; " "}
+    .{double; ${p}.y}
+    .{str; " | "}
+
+    // 部分初始化：剩余字段补 0
+    &{Point;q} = {3.5}
+    .{double; ${q}.x}
+    .{str; " "}
+    .{double; ${q}.y}
+    .{str; "\n"}
+}

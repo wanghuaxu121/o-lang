@@ -1,0 +1,9 @@
+// 管道 vs 直接调用：两者应走同一套 fn 签名
+O{
+    &{fn{int;int};h} = {0}
+    ${h} = o{{int;n}}{ ?{${n}.as{double} + {0.5}} }
+    .{double; ${h}{5}}
+    .{str; " "}
+    .{double; {5} | ${h}}
+    .{str; "\n"}
+}

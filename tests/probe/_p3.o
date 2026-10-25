@@ -1,0 +1,10 @@
+// 探针3：fn 引用参数 + 间接调用
+&{int;dbl} = o{{int;x}}{ ?{${x} * {2}} }
+
+&{int;call} = o{{fn{int;int};&g}, {int;v}}{
+    ?{${g}{${v}}}
+}
+
+O{
+    .{int; call{${dbl}, {5}}}
+}

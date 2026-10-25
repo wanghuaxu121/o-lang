@@ -1,0 +1,11 @@
+// 匿名函数返回 double + 混合返回类型的动态派发（不再被截断）
+&{double;apply} = o{{fn;f}, {int;x}}{
+    ?{${x} | ${f}}
+}
+
+O{
+    .{double; apply{ o{{int;n}}{ ?{${n}.as{double} + {0.5}} }, {5} }}
+    .{str; " "}
+    .{double; apply{ o{{int;n}}{ ?{${n} + {1}} }, {5} }}
+    .{str; "\n"}
+}

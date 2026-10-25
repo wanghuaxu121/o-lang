@@ -1,0 +1,15 @@
+// 词法作用域：test{} 应该读到静态区的 x=1，而不是 caller 的局部 x=2
+&{int;test} = o{}{
+    ?{${x}}
+}
+
+&{int;caller} = o{}{
+    &{int;x} = {2}
+    ?{ test{} }
+}
+
+O{
+    &{int;x} = {1}
+    .{int; caller{}}
+    .{str; "\n"}
+}

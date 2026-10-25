@@ -1,0 +1,6 @@
+// 探针A：空段签名 fn{int;;int}
+&{int;f} = o{{fn{int;;int};g}}{ ?{0} }
+
+O{
+    .{int; {0}}
+}

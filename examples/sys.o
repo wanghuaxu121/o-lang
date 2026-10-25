@@ -1,0 +1,9 @@
+// 导库 + 内置 system：#{"sys"}（POSIX 版：true 返回 0，exit 3 返回 3）
+#{"sys"}
+
+O{
+    .{int; system{"true"}}
+    .{str; "\n"}
+    .{int; system{"exit 3"}}
+    .{str; "\n"}
+}

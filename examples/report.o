@@ -1,0 +1,63 @@
+// report.o —— 用 O 直接生成一张 HTML 报表（含内联 JS 图表）
+// 用法：olang report.o > report.html
+&{struct;C} = {{int;cls}, {int;s1}, {int;s2}, {int;s3}}
+
+&{double;weighted} = o{{int;a}, {int;b}, {int;c}}{
+    ?{ (${a}.as{double} * {0.2} + ${b}.as{double} * {0.3} + ${c}.as{double} * {0.5}) }
+}
+
+O{
+    // 结构体数组不能整段字面量初始化（SPEC 未定义），逐字段赋值
+    &{C;rows} = {C{0;2}} = {}
+
+    ${rows}{0}.cls = {1}  ${rows}{0}.s1 = {85}  ${rows}{0}.s2 = {90}  ${rows}{0}.s3 = {88}
+    ${rows}{1}.cls = {2}  ${rows}{1}.s1 = {72}  ${rows}{1}.s2 = {75}  ${rows}{1}.s3 = {70}
+    ${rows}{2}.cls = {3}  ${rows}{2}.s1 = {58}  ${rows}{2}.s2 = {62}  ${rows}{2}.s3 = {55}
+
+    .{str; "<!doctype html>\n<html><head><meta charset='utf-8'>"}
+    .{str; "<title>O 语言 · 月考报表</title>\n"}
+    .{str; "<style>body{font-family:sans-serif;margin:28px;background:#fafafa}"}
+    .{str; "table{border-collapse:collapse;margin:12px 0 24px}"}
+    .{str; "td,th{border:1px solid #ddd;padding:6px 14px;text-align:right}"}
+    .{str; "th{background:#eef2ff}#chart div{margin:6px 0}"}
+    .{str; ".bar{height:16px;background:#2b6cff;border-radius:3px}</style></head><body>\n"}
+
+    .{str; "<h2>班级月考成绩</h2>\n<table>\n"}
+    .{str; "<tr><th>班级</th><th>月考1</th><th>月考2</th><th>月考3</th><th>加权</th></tr>\n"}
+    &{int;i} = {0}
+    [${i} < {3}]{
+        .{str; "<tr><td>"}
+        .{int; ${rows}{${i}}.cls}
+        .{str; "</td><td>"}
+        .{int; ${rows}{${i}}.s1}
+        .{str; "</td><td>"}
+        .{int; ${rows}{${i}}.s2}
+        .{str; "</td><td>"}
+        .{int; ${rows}{${i}}.s3}
+        .{str; "</td><td>"}
+        .{double; weighted{${rows}{${i}}.s1, ${rows}{${i}}.s2, ${rows}{${i}}.s3}}
+        .{str; "</td></tr>\n"}
+        ${i} = ${i} + {1}
+    }
+    .{str; "</table>\n"}
+
+    .{str; "<h2>加权分对比</h2>\n<div id='chart'></div>\n"}
+    .{str; "<script>\nconst data=[\n"}
+    ${i} = {0}
+    [${i} < {3}]{
+        .{str; " {cls:"}
+        .{int; ${rows}{${i}}.cls}
+        .{str; ",avg:"}
+        .{double; weighted{${rows}{${i}}.s1, ${rows}{${i}}.s2, ${rows}{${i}}.s3}}
+        .{str; "},\n"}
+        ${i} = ${i} + {1}
+    }
+    .{str; "];\n"}
+    .{str; "for(const d of data){\n"}
+    .{str; "  const row=document.createElement('div');\n"}
+    .{str; "  const pct=Math.round(d.avg);\n"}
+    .{str; "  row.innerHTML='<span>'+d.cls+'班 '+d.avg.toFixed(1)+'</span>'\n"}
+    .{str; "    +'<div class=bar style=width:'+(pct*4)+'px></div>';\n"}
+    .{str; "  document.getElementById('chart').appendChild(row);\n"}
+    .{str; "}\n</script>\n</body></html>\n"}
+}

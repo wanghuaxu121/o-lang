@@ -1,0 +1,9 @@
+// 错误用例：引用参数的区段太小
+&{int;fill} = o{{int{0;9};&buf}}{
+    ?{${buf}.size{}}
+}
+
+O{
+    &{int;small} = {int{0;3}} = {}
+    .{int; fill{${small}}}
+}

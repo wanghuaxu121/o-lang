@@ -1,0 +1,8 @@
+// 错误用例：传入的函数参数个数与 fn 签名不符
+&{int;apply} = o{{fn{int;int};g}, {int;x}}{
+    ?{${g}{${x}}}
+}
+
+O{
+    .{int; apply{ o{{int;a}, {int;b}}{ ?{${a} + ${b}} }, {1}}}
+}

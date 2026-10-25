@@ -1,0 +1,15 @@
+// v0.3 带签名的 fn 参数：fn{返回类型;参数类型,…}
+&{int;apply} = o{{fn{int;int};g}, {int;x}}{
+    ?{${g}{${x}}}
+}
+
+&{double;applyD} = o{{fn{double;int};g}, {int;x}}{
+    ?{${g}{${x}}}
+}
+
+O{
+    .{int; apply{ o{{int;n}}{ ?{${n} * {2}} }, {21}}}
+    .{str; " "}
+    .{double; applyD{ o{{int;n}}{ ?{${n}.as{double} / {4}} }, {10}}}
+    .{str; "\n"}
+}

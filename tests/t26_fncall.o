@@ -1,0 +1,21 @@
+// v0.3 ${f}{x, y}：多参数的高阶调用（管道只能传 1 个参数）
+&{int;apply2} = o{{fn;g}, {int;a}, {int;b}}{
+    ?{${g}{${a}, ${b}}}
+}
+
+&{int;apply1} = o{{fn;g}, {int;x}}{
+    ?{${g}{${x}}}
+}
+
+&{double;applyd} = o{{fn;g}, {int;x}}{
+    ?{${g}{${x}}}
+}
+
+O{
+    .{int; apply2{ o{{int;x}, {int;y}}{ ?{${x} * {10} + ${y}} }, {3}, {7}}}
+    .{str; " "}
+    .{int; apply1{ o{{int;n}}{ ?{${n} + {1}} }, {41}}}
+    .{str; " "}
+    .{double; applyd{ o{{int;n}}{ ?{${n}.as{double} / {4}} }, {10}}}
+    .{str; "\n"}
+}

@@ -1,0 +1,5 @@
+olang
+*.gen.c
+*.gen.exe
+*.exe
+nul

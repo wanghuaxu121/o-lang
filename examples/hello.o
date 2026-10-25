@@ -1,0 +1,4 @@
+// SPEC §12.1  Hello World
+O{
+    .{str; "Hello, O!\n"}
+}

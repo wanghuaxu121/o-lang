@@ -1,0 +1,11 @@
+// float / double 精度与混合运算
+O{
+    &{float;f} = {1.1}
+    &{double;d} = {2.2}
+    .{float; ${f}}
+    .{str; " "}
+    .{double; ${d}}
+    .{str; " "}
+    .{double; ${f} + ${d}}
+    .{str; "\n"}
+}

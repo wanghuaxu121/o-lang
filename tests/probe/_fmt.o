@@ -1,0 +1,8 @@
+O{
+    &{int;a} = {3}
+    &{int;b} = {4}
+    &{char;c} = {65}
+    &{str;s} = {"hi"}
+    &{double;d} = {1.5}
+    .{fmt; "a=%d b=%d sum=%d c=%c s=%s d=%g pct=%%\n"; ${a}; ${b}; ${a}+${b}; ${c}; ${s}; ${d}}
+}

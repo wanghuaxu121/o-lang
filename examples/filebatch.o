@@ -1,0 +1,35 @@
+// v0.2 批量文件 I/O：read / write 用引用参数收缓冲地址
+#{"file"}
+
+O{
+    &{int;h} = {0}
+    ${h} = open{"examples\\batch.txt", "w"}
+    puts{${h}, "line one\nline two\n"}
+    close{${h}}
+
+    &{char;buf} = {char{0;63}} = {}
+    &{int;n} = {0}
+    ${h} = open{"examples\\batch.txt", "r"}
+    ${n} = read{${h}, ${buf}, {64}}
+    close{${h}}
+    .{str; "n="}
+    .{int; ${n}}
+    .{str; "\n"}
+
+    &{int;i} = {0}
+    [${i} < ${n}]{
+        .{char; ${buf}{${i}}}
+        ${i} = ${i} + {1}
+    }
+
+    &{int;w} = {0}
+    ${h} = open{"examples\\batch2.txt", "w"}
+    ${w} = write{${h}, ${buf}, ${n}}
+    close{${h}}
+    .{str; "w="}
+    .{int; ${w}}
+    .{str; "\n"}
+
+    remove{"examples\\batch.txt"}
+    remove{"examples\\batch2.txt"}
+}

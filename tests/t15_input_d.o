@@ -1,0 +1,7 @@
+// ,{double; …} 读入浮点数
+O{
+    &{double;x} = {0.0}
+    ,{double; ${x}}
+    .{double; ${x} * {2.0}}
+    .{str; "\n"}
+}

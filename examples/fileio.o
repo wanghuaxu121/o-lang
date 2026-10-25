@@ -1,0 +1,32 @@
+// 导库 + 文件 I/O：#{"file"}
+#{"file"}
+
+O{
+    &{int;w} = {0}
+    ${w} = open{"examples\\lib_test.txt", "w"}
+    (${w} < {0}){
+        .{str; "open 失败\n"}
+        ?{1}
+    }
+    puts{${w}, "hello, file\n"}
+    puts{${w}, "second line\n"}
+    close{${w}}
+
+    &{int;r} = {0}
+    ${r} = open{"examples\\lib_test.txt", "r"}
+    &{int;c} = {0}
+    ${c} = getc{${r}}
+    [${c} >= {0}]{
+        .{char; ${c}}
+        ${c} = getc{${r}}
+    }
+    close{${r}}
+
+    .{str; "---\n"}
+    .{int; exists{"examples\\lib_test.txt"}}
+    .{str; "\n"}
+    .{int; remove{"examples\\lib_test.txt"}}
+    .{str; "\n"}
+    .{int; exists{"examples\\lib_test.txt"}}
+    .{str; "\n"}
+}

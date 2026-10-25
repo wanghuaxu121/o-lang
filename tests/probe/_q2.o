@@ -1,0 +1,9 @@
+// 探针B：管道 vs 直接调用，同名 fn 变量的静态类型差异
+O{
+    &{fn{int;int};h} = {}
+    ${h} = o{{int;n}}{ ?{${n}.as{double} + {0.5}} }
+    .{double; ${h}{5}}
+    .{str; " "}
+    .{double; {5} | ${h}}
+    .{str; "\n"}
+}
