@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建
+        run: make build
+
+      - name: 版本
+        run: make version
+
+      - name: 单元测试（跳过 60s 的 fib）
+        run: make fast
+
+      - name: SPEC §15 验收（11 条 + 性能）
+        run: make audit
+
+      - name: 规范 ↔ 测试覆盖
+        run: make coverage

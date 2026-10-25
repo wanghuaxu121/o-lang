@@ -1,0 +1,17 @@
+{
+  "name": "olang",
+  "displayName": "O Language",
+  "description": "O 语言（olang）语法高亮",
+  "version": "0.1.0",
+  "publisher": "olang",
+  "engines": { "vscode": "^1.60.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      { "id": "olang", "aliases": ["O", "olang"], "extensions": [".o"] }
+    ],
+    "grammars": [
+      { "language": "olang", "scopeName": "source.olang", "path": "./olang.tmLanguage.json" }
+    ]
+  }
+}

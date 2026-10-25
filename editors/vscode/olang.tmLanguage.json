@@ -1,0 +1,62 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "O",
+  "scopeName": "source.olang",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#directives" },
+    { "include": "#sigils" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.olang", "match": "//.*$" },
+        { "name": "comment.block.olang", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.olang",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.olang", "match": "\\\\." }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        { "name": "keyword.control.import.olang", "match": "#\\{\"[a-z]+\"\\}" },
+        { "name": "keyword.control.directive.olang", "match": "#mem\\b" }
+      ]
+    },
+    "sigils": {
+      "patterns": [
+        { "name": "punctuation.definition.variable.olang", "match": "\\$\\{" },
+        { "name": "keyword.operator.declare.olang", "match": "&\\{" },
+        { "name": "keyword.operator.return.olang", "match": "\\?\\{" },
+        { "name": "keyword.operator.deref.olang", "match": "\\^\\{" },
+        { "name": "keyword.operator.break.olang", "match": "!" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.olang", "match": "\\b(int|double|float|bool|char|str|struct|fn)\\b" },
+        { "name": "constant.language.olang", "match": "\\b(true|false)\\b" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.olang", "match": "\\b\\d+\\.\\d+\\b" },
+        { "name": "constant.numeric.integer.olang", "match": "\\b\\d+\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.olang", "match": "==|!=|<=|>=|&&|\\|\\||[-+*/%<>=|~]" }
+      ]
+    }
+  }
+}

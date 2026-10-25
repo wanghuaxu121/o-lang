@@ -43,6 +43,23 @@ gcc -std=c99 -O2 t.c -o t && ./t
 `--rebuild` 或改过源文件才重编。
 生成物是同目录的 `程序.gen.exe`（`.gen.c` 用完即删）。要调 gcc 参数就用 `--emit-c` 自己编。
 
+## 构建与测试（Makefile）
+
+```bash
+make              # 编译 olang（版本号自动取 git describe）
+make version      # 版本 / 构建时间 / 编译器
+make fast         # 跳过 fib 的测试（约 20 s）
+make test         # 全套（含 60 s 的 fib）
+make audit        # SPEC §15 验收 11 条
+make coverage     # 规范 ↔ 测试覆盖
+make check        # fast + audit + coverage
+make clean
+```
+
+CI（`.github/workflows/ci.yml`）在每次 push/PR 上跑 `build → fast → audit → coverage`。
+
+编辑器支持：`editors/vscode/` 是一个可直接复制安装的语法高亮扩展（52 个 token，三个 JSON）。
+
 ## 规范 ↔ 测试覆盖
 
 每个用例头部都标了 `// SPEC §x.y`，覆盖矩阵由工具生成：

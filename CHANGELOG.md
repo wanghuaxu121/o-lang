@@ -228,3 +228,15 @@ olang examples/report.o > report.html
 - 索引一律按**字节**（UTF-8 一个汉字 3 字节），与 `.len{}` 口径一致
 - 新增 `examples/csv.o`（读 CSV 行 → 按逗号切 → 手写数位累加 → 求和，`1,22,333,4` → **360**）
 - 新增探针 `p_str_lib`；SPEC §5.5 补上库函数表；全套 **90/90**
+
+### 二十一、工程化（Phase 5）
+
+| 项 | 内容 |
+|---|---|
+| `--version` | 打印版本（`git describe` 注入）/ 构建时间 / 编译器 / SPEC 版本 |
+| `Makefile` | `build / version / fast / test / audit / coverage / check / clean` |
+| CI | `.github/workflows/ci.yml`：`make build → fast → audit → coverage` |
+| 编辑器 | `editors/vscode/`：TextMate 语法 + language-configuration + package.json，复制即用 |
+
+`--version` 的版本号由 Makefile 通过 `-DOLANG_VERSION='"..."'` 注入，
+直接 `clang++ olang.cpp` 编译时回落到源码里的 `1.1.0-dev`。

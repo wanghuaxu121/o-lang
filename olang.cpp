@@ -41,6 +41,10 @@
 
 using namespace std;
 
+#ifndef OLANG_VERSION
+#define OLANG_VERSION "1.1.0-dev"
+#endif
+
 enum { MEM_SIZE = 1024 };          // 默认地址空间（可被 #mem 或 --mem-size 覆盖）
 enum { MEM_SIZE_MAX = 1 << 20 };   // 上限：1M 单元 = 8 MB
 
@@ -2978,6 +2982,17 @@ static string readFile(const string& p) {
 
 int main(int argc, char** argv) {
     internStr("");                    // 0 号串固定为空串：未初始化的 str 读出来是 ""，不是第一个字面量
+    if (argc >= 2 && string(argv[1]) == "--version") {
+        printf("olang %s\n", OLANG_VERSION);
+        printf("built %s %s\n", __DATE__, __TIME__);
+#ifdef __clang__
+        printf("compiler clang %s\n", __clang_version__);
+#elif defined(__VERSION__)
+        printf("compiler gcc %s\n", __VERSION__);
+#endif
+        printf("spec     SPEC v1.1-dev（见 SPEC.md）\n");
+        return 0;
+    }
     if (argc < 2 || string(argv[1]) == "-h" || string(argv[1]) == "--help") {
         fprintf(stderr,
             "用法: olang <程序.o> [选项]\n"
@@ -2991,7 +3006,8 @@ int main(int argc, char** argv) {
             "  --cc          生成 C → gcc 编译 → 直接运行（需要 gcc 在 PATH 里）\n"
             "  --rebuild     --cc 强制重新编译（默认会复用没变过的 .gen.exe）\n"
             "  --mem-size N  本次运行/生成的地址空间大小（单元数，默认 %d，上限 %d）\n"
-            "  --walias      显式地址区间重叠时给提示（默认静默，见 SPEC §12.4）\n",
+            "  --walias      显式地址区间重叠时给提示（默认静默，见 SPEC §12.4）\n"
+            "  --version     打印版本与构建信息\n",
             (int)MEM_SIZE, (int)MEM_SIZE_MAX);
         return argc < 2 ? 1 : 0;
     }
