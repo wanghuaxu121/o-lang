@@ -2234,7 +2234,8 @@ struct CEmit {
     bool bad;
     string why;
     map<string,string> pvar;                     // 值参数 -> C 局部变量名（寄存器化）
-    map<string,int> pty;                         // 值参数 -> 类型下标
+    map<string,int> pty;                         // 值参数/局部变量 -> 类型下标
+    const vector<SP>* curBody = 0;               // 当前函数体（局部变量逃逸分析用）
 
     CEmit() : globals(0), ip(0), ind(0), curRetTy(-1), inMain(false), loopDepth(0), bad(false) {}
 
@@ -2583,6 +2584,26 @@ struct CEmit {
             map<string, VarInfo>::iterator li = loc.find(d->name);
             if (li != loc.end()) ad = "(_fp + " + fmt("%lld", li->second.addr) + ")";
             else ad = "(" + fmt("%lld", d->addr) + ")";
+
+            // 函数内局部变量：标量、不逃逸 → 直接用 C 局部量（与值参数同一套逃逸规则）
+            if (li != loc.end() && curBody) {
+                int kd = gTypes.kindOf(d->ty);
+                if (kd != TY_STRUCT && kd != TY_FN && kd != TY_STR
+                    && d->elems == 1 && gTypes.cellsOf(d->ty) == 1
+                    && !escBody(*curBody, d->name)) {
+                    string v = "_l" + fmt("%lld", (long long)li->second.addr);
+                    bool isDbl = isF(d->ty);
+                    pvar[d->name] = v; pty[d->name] = d->ty;
+                    if (d->init && d->init->k != Expr::ListE) {
+                        put(string(isDbl ? "double " : "int64_t ") + v + " = " +
+                            (isDbl ? ("(double)(" + asD(d->init) + ")")
+                                   : storeCast(d->ty, asI(d->init))) + ";");
+                    } else {
+                        put(string(isDbl ? "double " : "int64_t ") + v + " = 0;");
+                    }
+                    return;
+                }
+            }
             if (d->init) {
                 const TypeInfo& ti0 = gTypes.at(d->ty);
                 if (ti0.kind == TY_STRUCT && d->elems == 1) {     // 结构体字面量：按字段顺序
@@ -2769,6 +2790,7 @@ struct CEmit {
         for (size_t i = 0; i < I.funcs.size(); ++i) {
             const Func& fn = I.funcs[i];
             loc.clear(); pvar.clear(); pty.clear();
+            curBody = &fn.body;
             vector<char> reg(fn.params.size(), 0);
             for (size_t k = 0; k < fn.params.size(); ++k) {
                 VarInfo vi;
@@ -2824,6 +2846,7 @@ struct CEmit {
         }
 
         // 4) main（O{} 体：静态作用域）
+        curBody = 0;
         loc.clear();
         lend = "_lend_main";
         retCT = "int64_t";
