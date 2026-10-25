@@ -2233,6 +2233,8 @@ struct CEmit {
     int loopDepth;                               // 生成 break 前必须 > 0
     bool bad;
     string why;
+    map<string,string> pvar;                     // 值参数 -> C 局部变量名（寄存器化）
+    map<string,int> pty;                         // 值参数 -> 类型下标
 
     CEmit() : globals(0), ip(0), ind(0), curRetTy(-1), inMain(false), loopDepth(0), bad(false) {}
 
@@ -2317,6 +2319,62 @@ struct CEmit {
             vty = ft->second;
         }
         return a;
+    }
+
+    static bool plainRef(EP e) {
+        return e->k == Expr::RefE && e->method.empty() && e->kids.empty()
+               && e->fields.empty() && !e->hasCast;
+    }
+
+    // 参数是否可能被取地址：作为引用实参传出 / 传给 read、write 的缓冲地址 / 下标或字段访问
+    bool escExpr(EP e, const string& nm) {
+        if (!e) return false;
+        if (e->k == Expr::RefE) {
+            if (e->s != nm) return false;
+            if (!e->kids.empty() || !e->fields.empty() || e->hasCast) return true;   // ${p}{i} / ${p}.f / ${p}.as{T} 走地址
+            return false;
+        }
+        if (e->k == Expr::CallE) {
+            bool native = (e->s == "read" || e->s == "write");
+            map<string,int>::const_iterator it = ip->fnByName.find(e->s);
+            for (size_t i = 0; i < e->kids.size(); ++i) {
+                if (native && plainRef(e->kids[i]) && e->kids[i]->s == nm) return true;
+                if (it != ip->fnByName.end()) {
+                    const Func& f = ip->funcs[it->second];
+                    if (i < f.paramRef.size() && f.paramRef[i] && plainRef(e->kids[i]) && e->kids[i]->s == nm)
+                        return true;
+                }
+                if (escExpr(e->kids[i], nm)) return true;
+            }
+            return false;
+        }
+        if (e->k == Expr::FnE) {                       // 匿名函数引用外层参数：保守判逃逸
+            for (size_t i = 0; i < e->body.size(); ++i) if (escStmt(e->body[i], nm)) return true;
+            return false;
+        }
+        if (escExpr(e->a, nm)) return true;
+        if (escExpr(e->b, nm)) return true;
+        for (size_t i = 0; i < e->kids.size(); ++i) if (escExpr(e->kids[i], nm)) return true;
+        return false;
+    }
+
+    bool escStmt(SP st, const string& nm) {
+        if (!st) return false;
+        switch (st->k) {
+        case Stmt::DeclS:  return st->decl && escExpr(st->decl->init, nm);
+        case Stmt::InS:    return plainRef(st->e) && st->e->s == nm;   // 输入直接写入参数槽
+        case Stmt::IfS:
+        case Stmt::WhileS: return escExpr(st->e, nm) || escBody(st->body, nm);
+        case Stmt::RetS:   return escExpr(st->e, nm);
+        case Stmt::OutS:   return escExpr(st->e, nm);
+        case Stmt::ExprS:  return escExpr(st->e, nm);
+        default:           return false;
+        }
+    }
+
+    bool escBody(const vector<SP>& body, const string& nm) {
+        for (size_t i = 0; i < body.size(); ++i) if (escStmt(body[i], nm)) return true;
+        return false;
     }
 
     string addrOf(EP e, int& vty) {
@@ -2420,6 +2478,11 @@ struct CEmit {
                 if (gi == globals->end()) { fail("未定义的变量 " + e->s); return "0"; }
                 return fmt("%lld", (long long)gi->second.elems);
             }
+            if (plainRef(e) && pvar.find(e->s) != pvar.end()) {
+                string v = pvar[e->s];
+                int t = pty[e->s];
+                return isF(t) ? v : "((int64_t)(" + v + "))";
+            }
             int vty = gTypes.iInt;
             string base = addrBase(e, vty);
             if (gTypes.kindOf(vty) == TY_FN && !e->kids.empty())      // ${f}{x, y}：直接间接调用
@@ -2456,6 +2519,12 @@ struct CEmit {
             return rv(e->a);
         case Expr::BinE: {
             if (e->op == T_ASSIGN) {
+                if (plainRef(e->a) && pvar.find(e->a->s) != pvar.end()) {
+                    string v = pvar[e->a->s];
+                    int t = pty[e->a->s];
+                    if (isF(t)) return "(" + v + " = (double)(" + asD(e->b) + "))";
+                    return "(" + v + " = " + storeCast(t, asI(e->b)) + ")";
+                }
                 int vty = gTypes.iInt;
                 string a = addrOf(e->a, vty);
                 if (isF(vty)) return "(_mem[" + a + "].d = (double)(" + asD(e->b) + "))";
@@ -2692,7 +2761,8 @@ struct CEmit {
         // 3) 函数定义（命名函数与匿名函数一视同仁）
         for (size_t i = 0; i < I.funcs.size(); ++i) {
             const Func& fn = I.funcs[i];
-            loc.clear();
+            loc.clear(); pvar.clear(); pty.clear();
+            vector<char> reg(fn.params.size(), 0);
             for (size_t k = 0; k < fn.params.size(); ++k) {
                 VarInfo vi;
                 vi.addr = fn.paramOfs[k];
@@ -2700,6 +2770,11 @@ struct CEmit {
                 vi.isRef = (k < fn.paramRef.size() && fn.paramRef[k]) != 0;
                 vi.elems = vi.isRef ? fn.paramElems[k] : 1;
                 loc[fn.params[k]] = vi;
+                int kd = gTypes.kindOf(fn.paramTy[k]);
+                if (!vi.isRef && kd != TY_FN && kd != TY_STRUCT && kd != TY_STR
+                    && gTypes.cellsOf(fn.paramTy[k]) == 1
+                    && !escBody(fn.body, fn.params[k]))
+                    reg[k] = 1;
             }
             collect(fn.body);
             lend = "_lend_f" + fmt("%lld", (long long)i);
@@ -2722,7 +2797,13 @@ struct CEmit {
                 string dst = "_mem[_sp + " + fmt("%lld", (long long)fn.paramOfs[k]) + "]";
                 string src = "_p" + fmt("%lld", (long long)k);
                 bool rf = (k < fn.paramRef.size() && fn.paramRef[k]);
-                if (rf) put(dst + ".i = (int64_t)(" + src + ");");
+                if (reg[k]) {                                  // 不逃逸的值参数：留在 C 寄存器
+                    string v = "_v" + fmt("%lld", (long long)k);
+                    pvar[fn.params[k]] = v; pty[fn.params[k]] = fn.paramTy[k];
+                    if (isF(fn.paramTy[k])) put("double " + v + " = (double)(" + src + ");");
+                    else put("int64_t " + v + " = " + storeCast(fn.paramTy[k], src) + ";");
+                }
+                else if (rf) put(dst + ".i = (int64_t)(" + src + ");");
                 else if (isF(fn.paramTy[k])) put(dst + ".d = (double)(" + src + ");");
                 else put(dst + ".i = " + storeCast(fn.paramTy[k], src) + ";");
             }

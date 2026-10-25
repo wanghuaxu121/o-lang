@@ -1,0 +1,4 @@
+// SPEC §6.7
+// 参数带 .as{} 时必须仍走内存路径（否则读到未写入的槽）
+&{double;half} = o{{int;n}}{ ?{ ${n}.as{double} / {2.0} } }
+O{ .{double; half{7}} .{str; "\n"} }

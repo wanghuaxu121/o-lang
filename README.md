@@ -253,7 +253,7 @@ static int64_t o_fib(int64_t _p0) {
 ./run_tests.sh --fast   # 跳过 fib
 ```
 
-当前 **83/83 通过**（examples 17 + err 26 + probe 34 + 工具自检 6；probe 每个都跑**解释器 + C 后端**两条路）。
+当前 **85/85 通过**（examples 17 + err 26 + probe 36 + 工具自检 6；probe 每个都跑**解释器 + C 后端**两条路）。
 
 | 组 | 内容 | 数量 |
 |---|---|---|

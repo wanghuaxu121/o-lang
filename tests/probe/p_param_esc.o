@@ -1,0 +1,5 @@
+// SPEC §8.2
+// 值参数 n 被当作引用实参传给 bump —— 必须逃逸到 _mem
+&{int;bump} = o{{int;&x}}{ ${x} = ${x} + {1}  ?{0} }
+&{int;twice} = o{{int;n}}{ bump{${n}}  bump{${n}}  ?{${n}} }
+O{ .{int; twice{5}} .{str; "\n"} }
