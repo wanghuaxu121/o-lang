@@ -1,3 +1,4 @@
+// SPEC §5.4
 // 结构体数组 + 字段（C 后端覆盖 sizeof 与字段偏移）
 &{struct;Pt} = {{int;x}, {int;y}}
 

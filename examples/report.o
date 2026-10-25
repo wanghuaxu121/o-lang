@@ -1,3 +1,4 @@
+// SPEC §7.6
 // report.o —— 用 O 直接生成一张 HTML 报表（含内联 JS 图表）
 // 用法：olang report.o > report.html
 &{struct;C} = {{int;cls}, {int;s1}, {int;s2}, {int;s3}}

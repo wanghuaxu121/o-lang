@@ -1,3 +1,4 @@
+// SPEC §8.2
 // 错误用例：fn 类型不能作引用参数
 &{int;call} = o{{fn{int;int};&g}, {int;v}}{
     ?{${g}{${v}}}

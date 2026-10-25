@@ -1,3 +1,4 @@
+// SPEC §5.4
 // 探针A：空段签名 fn{int;;int}
 &{int;f} = o{{fn{int;;int};g}}{ ?{0} }
 

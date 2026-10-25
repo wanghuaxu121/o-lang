@@ -1,3 +1,4 @@
+// SPEC §8.2
 // v0.2 引用参数：swap + 通过引用写数组
 &{int;swap} = o{{int;&a}, {int;&b}}{
     &{int;t} = {0}

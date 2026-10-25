@@ -1,3 +1,4 @@
+// SPEC §5.4
 // 探针：字符串相等比较 + str.as{int}
 O{
     &{str;a} = {"hello"}
