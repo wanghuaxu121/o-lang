@@ -1,0 +1,31 @@
+#{"str"}
+// SPEC §5.5：读一行 CSV（逗号分隔整数）并求和
+// 覆盖：str 输入 / len / find / substr / charat / 手写数位累加
+O{
+    &{str;line} = {}
+    ,{str; ${line}}
+
+    &{int;n} = {}
+    ${n} = len{${line}}
+    &{int;sum} = {0}
+    &{int;start} = {0}
+    &{int;i} = {0}
+
+    [${i} <= ${n}]{
+        ((${i} == ${n}) || (charat{${line}, ${i}} == {44})){
+            &{str;f} = {}
+            ${f} = substr{${line}, ${start}, ${i} - ${start}}
+            &{int;k} = {0}
+            &{int;v} = {0}
+            [${k} < len{${f}}]{
+                ${v} = ${v} * {10} + (charat{${f}, ${k}} - {48})
+                ${k} = ${k} + {1}
+            }
+            ${sum} = ${sum} + ${v}
+            ${start} = ${i} + {1}
+        }
+        ${i} = ${i} + {1}
+    }
+    .{int; ${sum}}
+    .{str; "\n"}
+}

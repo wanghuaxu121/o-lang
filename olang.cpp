@@ -354,6 +354,15 @@ static void initLibs() {
         n = NativeSig(); n.ret = IT; n.ptypes.push_back(ST); n.cname = "exists";         L["exists"] = n;
         n = NativeSig(); n.ret = IT; n.ptypes.push_back(ST); n.ptypes.push_back(ST); n.cname = "rename"; L["rename"] = n;
     }
+    {
+        map<string, NativeSig>& L = gLibs["str"];
+        NativeSig n;
+        n = NativeSig(); n.ret = IT; n.ptypes.push_back(ST); n.cname = "slen"; L["len"] = n;
+        n = NativeSig(); n.ret = IT; n.ptypes.push_back(ST); n.ptypes.push_back(ST); n.cname = "sfind"; L["find"] = n;
+        n = NativeSig(); n.ret = ST; n.ptypes.push_back(ST); n.ptypes.push_back(IT); n.ptypes.push_back(IT);
+        n.cname = "ssubstr"; L["substr"] = n;
+        n = NativeSig(); n.ret = IT; n.ptypes.push_back(ST); n.ptypes.push_back(IT); n.cname = "scharat"; L["charat"] = n;
+    }
 }
 
 static bool importLib(const string& lib) {
@@ -1429,6 +1438,26 @@ struct Interp {
     }
 
     Val callNative(const string& nm, const vector<Val>& a, int line) {
+        if (nm == "len")  return mkIntV((long long)strAt(a[0].i).size());
+        if (nm == "find") {
+            size_t p = strAt(a[0].i).find(strAt(a[1].i));
+            return mkIntV(p == string::npos ? -1 : (long long)p);
+        }
+        if (nm == "substr") {
+            const string& src = strAt(a[0].i);
+            long long from = a[1].i, n = a[2].i;
+            if (from < 0) from = 0;
+            if (from > (long long)src.size()) from = (long long)src.size();
+            if (n < 0) n = 0;
+            if (from + n > (long long)src.size()) n = (long long)src.size() - from;
+            return mkStrV((long long)internStr(src.substr((size_t)from, (size_t)n)));
+        }
+        if (nm == "charat") {
+            const string& src = strAt(a[0].i);
+            long long i = a[1].i;
+            if (i < 0 || i >= (long long)src.size()) return mkIntV(-1);
+            return mkIntV((unsigned char)src[(size_t)i]);
+        }
         if (nm == "system") {
             int r = system(strAt(a[0].i).c_str());
 #ifndef _WIN32
@@ -2764,6 +2793,14 @@ struct CEmit {
     }
 
     static string nativeImpl(const string& n) {
+        if (n == "len")    return "static int64_t n_slen(int64_t p){return (int64_t)strlen((const char*)(intptr_t)p);}\n";
+        if (n == "find")   return "static int64_t n_sfind(int64_t a,int64_t b){const char* s=(const char*)(intptr_t)a;const char* p=strstr(s,(const char*)(intptr_t)b);return p?(int64_t)(p-s):-1;}\n";
+        if (n == "charat") return "static int64_t n_scharat(int64_t a,int64_t i){const char* s=(const char*)(intptr_t)a;int n=(int)strlen(s);if(i<0||i>=n)return -1;return (unsigned char)s[i];}\n";
+        if (n == "substr") return
+            "static int64_t n_ssubstr(int64_t a,int64_t from,int64_t n){const char* s=(const char*)(intptr_t)a;"
+            "int len=(int)strlen(s);if(from<0)from=0;if(from>len)from=len;if(n<0)n=0;if(from+n>len)n=len-from;"
+            "if(_stop+(int)n+1>(int)sizeof(_sarena)){fprintf(stderr,\"error: string arena full\\n\");exit(2);}"
+            "char* p=_sarena+_stop;memcpy(p,s+from,(size_t)n);p[n]=0;_stop+=(int)n+1;return (int64_t)(intptr_t)p;}\n";
         if (n == "system") return
             "static int64_t n_system(int64_t c){int r=system((const char*)(intptr_t)c);"
 #ifndef _WIN32

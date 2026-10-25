@@ -1,0 +1,17 @@
+// SPEC §5.5
+#{"str"}
+O{
+    &{str;s} = {"a,b,c"}
+    .{int; len{${s}}}
+    .{str; " "}
+    .{int; find{${s}, ","}}
+    .{str; " "}
+    .{int; find{${s}, "z"}}
+    .{str; " "}
+    .{str; substr{${s}, 2, 1}}
+    .{str; " "}
+    .{int; charat{${s}, 1}}
+    .{str; " "}
+    .{str; substr{${s}, 4, 99}}
+    .{str; "\n"}
+}

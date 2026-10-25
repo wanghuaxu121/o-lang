@@ -215,3 +215,16 @@ olang examples/report.o > report.html
 - `e11_str_in`（原来“str 输入应报错”）已删除，新增 `p_str_ops` / `p_str_input` 探针
 - `run_tests.sh` 支持 `examples/*.in` 作为 stdin（新增 `strings.o` + `strings.in`）
 - SPEC 升到 **v1.1-dev**，新增 §5.5；全套 **88/88**
+
+### 二十、`#{"str"}` 库（Phase 4 完成）
+
+| 函数 | 解释器 | C 后端 |
+|---|---|---|
+| `len{s}` | 池长度 | `n_slen` |
+| `find{s,t}` | `string::find` | `n_sfind`（`strstr`） |
+| `substr{s,from,n}` | `substr` + 入池 | `n_ssubstr`（arena 分配） |
+| `charat{s,i}` | 字节值 / -1 | `n_scharat` |
+
+- 索引一律按**字节**（UTF-8 一个汉字 3 字节），与 `.len{}` 口径一致
+- 新增 `examples/csv.o`（读 CSV 行 → 按逗号切 → 手写数位累加 → 求和，`1,22,333,4` → **360**）
+- 新增探针 `p_str_lib`；SPEC §5.5 补上库函数表；全套 **90/90**
