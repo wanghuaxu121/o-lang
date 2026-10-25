@@ -7,7 +7,7 @@ SRC      := olang.cpp
 GIT     := $(shell git describe --tags --always --dirty 2>/dev/null)
 VERSION := 1.1.0-dev$(if $(GIT),+$(GIT))
 
-.PHONY: all build test fast audit coverage check clean version
+.PHONY: all build test fast audit coverage check clean version demo
 
 all: build
 
@@ -32,6 +32,9 @@ check: fast audit coverage
 
 version: $(BIN)
 	./$(BIN) --version
+
+demo: $(BIN)
+	./tools/demo.sh
 
 clean:
 	rm -f $(BIN) examples/*.gen.exe tests/*/*.gen.exe

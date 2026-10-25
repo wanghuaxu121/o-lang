@@ -240,3 +240,14 @@ olang examples/report.o > report.html
 
 `--version` 的版本号由 Makefile 通过 `-DOLANG_VERSION='"..."'` 注入，
 直接 `clang++ olang.cpp` 编译时回落到源码里的 `1.1.0-dev`。
+
+### 二十二、定位与展示（Phase 6）
+
+| 产出 | 内容 |
+|---|---|
+| `docs/INTRO.md` | 约 2000 字：《为什么要有 O》——问题、答案、三个例子、代价、适用场景 |
+| `docs/GETTING-STARTED.md` | 30 秒上手：编译 → Hello → 地址表 → 别名 → 内存快照 → 轨迹 → 双后端 |
+| `tools/demo.sh` / `make demo` | 五个能力一次看完（7 段输出） |
+| README | 首尾各加一段「为什么」，链接到两份文档 |
+
+核心叙事定稿为：**O 的卖点不是快，也不是安全，是「你随时能指着屏幕说：这个变量就在第 6 号单元，编译前后都是。」**
