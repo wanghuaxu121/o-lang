@@ -1,0 +1,34 @@
+// SPEC §5.3
+// 索引式二叉搜索树：节点在 _mem 里，left/right 是下标，-1 表示空
+// 注意：t 占 32*3=96 个单元（0..95），vals 必须避开这个区间
+struct Node { int val; int left; int right; }
+int alloc(Node t[0..31], int& n, int v) {
+    int id = n;
+    n = n + 1;
+    t[id].val = v;
+    t[id].left = -1;
+    t[id].right = -1;
+    return id;
+}
+int insert(Node t[0..31], int& n, int root, int v) {
+    if (root == -1) { return alloc(t, n, v); }
+    if (v < t[root].val) { t[root].left = insert(t, n, t[root].left, v); }
+    else { t[root].right = insert(t, n, t[root].right, v); }
+    return root;
+}
+void walk(Node t[0..31], int root) {
+    if (root == -1) { return; }
+    walk(t, t[root].left);
+    print("%d ", t[root].val);
+    walk(t, t[root].right);
+}
+O{
+    Node t[0..31];
+    int root = -1;
+    int n = 0;
+    int vals[200..206] = {50, 30, 70, 20, 40, 60, 80};
+    int i = 0;
+    while (i < 7) { root = insert(t, n, root, vals[i]); i = i + 1; }
+    walk(t, root);
+    print("\nn=%d\n", n);
+}
