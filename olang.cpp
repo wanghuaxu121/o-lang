@@ -1678,7 +1678,11 @@ struct Interp {
 
     void layoutStmt(SP s, bool inFunction, int& frameOfs) {
         if (s->k == Stmt::DeclS) { layoutDecl(s->decl, inFunction, frameOfs); return; }
-        if (s->k == Stmt::IfS || s->k == Stmt::WhileS) { layoutBody(s->body, inFunction, frameOfs); return; }
+        if (s->k == Stmt::IfS || s->k == Stmt::WhileS) {
+            layoutBody(s->body, inFunction, frameOfs);
+            layoutBody(s->elseBody, inFunction, frameOfs);   // else 分支里的声明也要布局
+            return;
+        }
     }
 
     void layoutAnon(EP e) {

@@ -1,0 +1,22 @@
+// v2.1-S4 回归：else 分支里声明的变量必须有地址（layout 曾漏掉 elseBody）
+O{
+    int x = 0;
+    if (x == 1) {
+        print("no\n");
+    } else {
+        int x = 3;
+        int y = x * 2;
+        print("else x=%d y=%d\n", x, y);
+    }
+    print("outer x=%d\n", x);
+
+    int z = 1;
+    if (z == 1) {
+        int z = 9;
+        print("then z=%d\n", z);
+    } else {
+        int z = 8;
+        print("else z=%d\n", z);
+    }
+    print("outer z=%d\n", z);
+}
