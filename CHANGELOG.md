@@ -458,3 +458,12 @@ void show(int x, int y) { print("%d,%d\n", x, y); }   // void ≡ int + 隐式 r
   （o-projects 6/6 + o2 4/4 + o3 4/4；首轮 o-projects 有一次负载导致的假失败，复跑即过）
 - 已知问题：结构体数组参数 + `int&` 在递归调用里算错（`bst-bug-repro.o`），
   索引式链表已验证可用，递归树待修
+
+### 三十九、索引式链表示例 + K1 进展
+
+- 新增 `examples/list.o`：`struct Node { int val; int next; }` + 节点数组 + `int& n` 计数，
+  链表遍历输出 `10 20 30`，双后端一致 —— **索引式结构可用**
+- K1（递归树）三轮排查记录在 `docs/KNOWN-ISSUES.md`：
+  - ASAN 无越界报告（访问都在 `_mem` 内，属逻辑错误）
+  - 插入打印证明：递归调用进入时实参整体错位一位
+  - 但 `--emit-c` 生成的调用**看起来完全正确**，且两个后端结果一致 —— 证据互相矛盾，需要 gdb 级别排查

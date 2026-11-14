@@ -1,0 +1,28 @@
+// SPEC §5.3
+// 索引式链表：所有节点都在 _mem 里，next 是下标，-1 表示空
+struct Node { int val; int next; }
+
+int push(Node ns[0..7], int& n, int v) {
+    int id = n;
+    n = n + 1;
+    ns[id].val = v;
+    ns[id].next = -1;
+    return id;
+}
+
+O{
+    Node ns[0..7];
+    int n = 0;
+    int head = push(ns, n, 10);
+    push(ns, n, 20);
+    push(ns, n, 30);
+    ns[0].next = 1;
+    ns[1].next = 2;
+
+    int p = head;
+    while (p != -1) {
+        print("%d ", ns[p].val);
+        p = ns[p].next;
+    }
+    print("\nn=%d\n", n);
+}
