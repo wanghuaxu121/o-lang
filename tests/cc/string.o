@@ -1,0 +1,14 @@
+// SPEC §5.6
+// C 互操作：libc 的字符串函数（str 参数与 str 返回值）
+extern int  strlen(str)
+extern int  strcmp(str, str)
+extern str  strstr(str, str)
+
+O{
+    .{int; strlen{"hello"}}
+    .{str; " "}
+    .{int; strcmp{"abc", "abd"}}
+    .{str; " "}
+    .{str; strstr{"hello world", "wor"}}
+    .{str; "\n"}
+}

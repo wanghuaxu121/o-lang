@@ -58,6 +58,18 @@ for f in tests/probe/*.o; do
     else fail=$((fail+1)); echo "[DIFF] probe/$n"; echo "   解释[$ra]: $a"; echo "   --cc[$rb]: $b"; fi
 done
 
+echo "== C 互操作（tests/cc，仅 --cc）=="
+for f in tests/cc/*.o; do
+    n=$(basename "$f" .o)
+    got=$(timeout 120 "$BIN" "$f" --cc </dev/null 2>&1 | norm)
+    want=$(norm < "tests/cc/$n.expected")
+    if [ "$got" = "$want" ]; then pass=$((pass+1)); echo "[ OK ] cc/$n"
+    else fail=$((fail+1)); echo "[FAIL] cc/$n"; echo "   期望: $want"; echo "   实际: $got"; fi
+done
+if "$BIN" tests/cc/math.o </dev/null 2>&1 | grep -q 'extern 函数'; then
+    pass=$((pass+1)); echo "[ OK ] 解释器拒绝 extern"
+else fail=$((fail+1)); echo "[FAIL] 解释器拒绝 extern"; fi
+
 echo "== 工具自检（--map --json / --mem / --trace）=="
 if "$BIN" examples/sum.o --map --json 2>/dev/null | python3 -c 'import json,sys
 d=json.load(sys.stdin)

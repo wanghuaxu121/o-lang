@@ -316,11 +316,13 @@ struct NativeSig {
     vector<int> ptypes;   // 按位置
     vector<char> pref;    // 按位置：1 = 引用参数（收地址）
     string cname;         // C 端实现名（emit 用）
-    NativeSig() : ret(gTypes.iInt) {}
+    bool isExtern;        // extern 声明的 C 函数（只有 C 后端能调）
+    NativeSig() : ret(gTypes.iInt), isExtern(false) {}
 };
 
 static map<string, map<string, NativeSig> > gLibs;   // 库名 -> 函数名 -> 签名
 static map<string, NativeSig> gNativeTab;            // 已导入的函数
+static vector<string> gLinkFlags;                     // #link 收集的链接参数
 static vector<string> gStrPool;                      // 字符串常量池
 
 static int internStr(const string& s) {
@@ -518,6 +520,55 @@ struct Parser {
     vector<SP> mainBody;
     int declaredMem = 0;              // 源码里 #mem N 指定的地址空间（0 = 未指定）
 
+    // #link "m" / #link "/path/libfoo.so"
+    void linkDirective() {
+        advance();                                   // #
+        expectId("'link'");
+        if (!is(T_STR)) throw Err("#link 后面应该是库名字符串", cur.line);
+        gLinkFlags.push_back(cur.s);
+        advance();
+    }
+
+    // extern double sqrt(double)
+    // extern int sqlite3_open(str, handle&)
+    void externDecl() {
+        int ln = cur.line;
+        advance();                                   // extern
+        string rt = expectId("返回类型");
+        int rti = cTypeIndex(rt, ln);
+        string nm = expectId("C 函数名");
+        expect(T_LPAREN, "'('");
+        vector<int> pts; vector<char> outs;
+        if (!is(T_RPAREN)) {
+            for (;;) {
+                int tl = cur.line;
+                string tn = expectId("参数类型");
+                int ti = cTypeIndex(tn, tl);
+                bool o = false;
+                if (is(T_AMP)) { advance(); o = true; }
+                pts.push_back(ti);
+                outs.push_back(o ? 1 : 0);
+                if (is(T_COMMA)) { advance(); continue; }
+                break;
+            }
+        }
+        expect(T_RPAREN, "')'");
+        NativeSig s;
+        s.ret = rti; s.ptypes = pts; s.pref = outs; s.cname = nm; s.isExtern = true;
+        gNativeTab[nm] = s;
+    }
+
+    // C 类型名 -> O 类型下标（P0 只支持数值与字符串）
+    int cTypeIndex(const string& t, int line) {
+        if (t == "int") return gTypes.iInt;
+        if (t == "bool") return gTypes.iBool;
+        if (t == "char") return gTypes.iChar;
+        if (t == "double") return gTypes.iDbl;
+        if (t == "float") return gTypes.iFloat >= 0 ? gTypes.iFloat : gTypes.iDbl;
+        if (t == "str") return gTypes.iStr;
+        throw Err("extern 暂不支持的类型 '" + t + "'（P0 可用：int/bool/char/double/float/str）", line);
+    }
+
     // #mem N：在源码里声明本次运行需要的地址空间
     void memDirective() {
         int ln = cur.line;
@@ -548,10 +599,12 @@ struct Parser {
     void program() {
         while (!is(T_END) && !isId("O")) {
             if (is(T_HASH)) {
-                if (nxt.k == T_LBRACE) { importStmt(); continue; }   // #{"lib"}
-                memDirective();                                      // #mem N
+                if (nxt.k == T_LBRACE) { importStmt(); continue; }             // #{"lib"}
+                if (nxt.k == T_ID && nxt.s == "link") { linkDirective(); continue; }  // #link
+                memDirective();                                                // #mem N
                 continue;
             }
+            if (isId("extern")) { externDecl(); continue; }
             topDecls.push_back(decl());
         }
         if (!isId("O")) throw Err("缺少唯一的入口 O{...}", cur.line);
@@ -1442,6 +1495,9 @@ struct Interp {
     }
 
     Val callNative(const string& nm, const vector<Val>& a, int line) {
+        map<string, NativeSig>::iterator xi = gNativeTab.find(nm);
+        if (xi != gNativeTab.end() && xi->second.isExtern)
+            throw Err("extern 函数 '" + nm + "' 只能在 --cc（C 后端）下调用，解释器不支持", line);
         if (nm == "len")  return mkIntV((long long)strAt(a[0].i).size());
         if (nm == "find") {
             size_t p = strAt(a[0].i).find(strAt(a[1].i));
@@ -2400,6 +2456,11 @@ struct CEmit {
             return false;
         }
         if (e->k == Expr::CallE) {
+            NativeSig* xs = findNative(e->s);
+            if (xs && xs->isExtern) {
+                for (size_t i = 0; i < e->kids.size() && i < xs->pref.size(); ++i)
+                    if (xs->pref[i] && plainRef(e->kids[i]) && e->kids[i]->s == nm) return true;
+            }
             bool native = (e->s == "read" || e->s == "write");
             map<string,int>::const_iterator it = ip->fnByName.find(e->s);
             for (size_t i = 0; i < e->kids.size(); ++i) {
@@ -2478,6 +2539,13 @@ struct CEmit {
 
     static string fname(size_t idx) { return "o_f" + fmt("%lld", (long long)idx); }
 
+    static string cTypeExtern(int ty) {
+        int k = gTypes.kindOf(ty);
+        if (k == TY_DBL || k == TY_FLOAT) return "double";
+        if (k == TY_STR) return "const char*";
+        return "int32_t";
+    }
+
     // 间接调用：按函数下标生成派发链（候选 = 参数个数相同的所有函数）
     string callIndirect(const string& idxEx, const vector<EP>& args, int resultTy, int calleeTy = -1) {
         bool hasSig = (calleeTy >= 0) && gTypes.at(calleeTy).hasSig;
@@ -2516,6 +2584,30 @@ struct CEmit {
         if (it == ip->fnByName.end()) {
             NativeSig* ns = findNative(nm);
             if (!ns) { fail("未定义的函数 " + nm); return "0"; }
+            if (ns->isExtern) {
+                string s = ns->cname + "(";
+                for (size_t i = 0; i < args.size(); ++i) {
+                    if (i) s += ", ";
+                    int pt = ns->ptypes[i];
+                    if (i < ns->pref.size() && ns->pref[i]) {          // 出参：传 _mem 里的格子地址
+                        if (args[i]->k != Expr::RefE) { fail("extern 的出参必须传变量（如 ${x}）"); return "0"; }
+                        int vt = gTypes.iInt;
+                        string a = addrOf(args[i], vt);
+                        s += "(" + cTypeExtern(pt) + "*)&_mem[" + a + "]." + (isF(pt) ? "d" : "i");
+                    } else if (gTypes.kindOf(pt) == TY_STR) {
+                        s += "(const char*)(intptr_t)(" + asI(args[i]) + ")";
+                    } else if (isF(pt)) {
+                        s += "(double)(" + asD(args[i]) + ")";
+                    } else {
+                        s += "(int32_t)(" + asI(args[i]) + ")";
+                    }
+                }
+                s += ")";
+                int rk = gTypes.kindOf(ns->ret);
+                if (rk == TY_STR) return "((int64_t)(intptr_t)(" + s + "))";
+                if (isF(ns->ret)) return "((double)(" + s + "))";
+                return "((int64_t)(" + s + "))";
+            }
             string s = "n_" + ns->cname + "(";
             for (size_t i = 0; i < args.size(); ++i) {
                 if (i) s += ", ";
@@ -2890,6 +2982,28 @@ struct CEmit {
         o += "#include <sys/wait.h>\n";      // system() 的 wait 状态 → 退出码
 #endif
         o += "\n";
+        for (map<string, NativeSig>::iterator it = gNativeTab.begin(); it != gNativeTab.end(); ++it) {
+            if (!it->second.isExtern) continue;
+            const NativeSig& ns = it->second;
+            // 生成代码自己 include 的 libc 函数已经有原型，重复声明会冲突 —— 直接跳过
+            static const char* kPredeclared[] = {
+                "strlen","strcmp","strstr","memcpy","printf","fprintf","fputs","fopen","fclose",
+                "fgets","fputc","fgetc","fwrite","fflush","remove","rename","system","exit",
+                "scanf","snprintf", 0
+            };
+            bool pre = false;
+            for (int pi = 0; kPredeclared[pi]; ++pi) if (ns.cname == kPredeclared[pi]) { pre = true; break; }
+            if (pre) continue;
+            string d = "extern " + cTypeExtern(ns.ret) + " " + ns.cname + "(";
+            for (size_t i = 0; i < ns.ptypes.size(); ++i) {
+                if (i) d += ", ";
+                d += cTypeExtern(ns.ptypes[i]);
+                if (i < ns.pref.size() && ns.pref[i]) d += "*";
+            }
+            if (ns.ptypes.empty()) d += "void";
+            d += ");";
+            o += d + "\n";
+        }
         o += "typedef union { long long i; double d; } Cell;\n";
         o += "static Cell _mem[" + fmt("%lld", (long long)I.memSize) + "];\n";
         o += "#define _SP_TOP " + fmt("%lld", (long long)I.memSize) + "\n";
@@ -3187,7 +3301,15 @@ int main(int argc, char** argv) {
             if (!gf) { fprintf(stderr, "错误: 无法写入 %s\n", cpath.c_str()); return 4; }
             fwrite(code.data(), 1, code.size(), gf);
             fclose(gf);
-            string cmd = "gcc -std=c99 -O2 -w -o \"" + epath + "\" \"" + cpath + "\"";
+            string links;
+            for (size_t li = 0; li < gLinkFlags.size(); ++li) {
+                const string& lf = gLinkFlags[li];
+                if (lf.find('/') != string::npos || lf.find(".so") != string::npos)
+                    links += " \"" + lf + "\"";          // 全路径：直接交给链接器
+                else
+                    links += " -l" + lf;                   // 短名：-lm / -lsqlite3
+            }
+            string cmd = "gcc -std=c99 -O2 -w -o \"" + epath + "\" \"" + cpath + "\"" + links;
             if (system(cmd.c_str()) != 0) {
                 fprintf(stderr, "错误: gcc 编译失败（%s）\n", cmd.c_str());
                 return 4;

@@ -282,3 +282,22 @@ olang examples/report.o > report.html
 
 剩 1.42× 的主要来源已定位：调用点把 int32 参数扩宽成 int64（`sxtw`）、
 以及 `_ret + goto` 的返回结构。下一步是「int 参数用 int32_t 签名 + 尾位置直接 return」。
+
+### 二十六、C 互操作（P0：extern + #link）
+
+```o
+#link "m"
+extern double sqrt(double)
+extern int    strcmp(str, str)
+extern str    strstr(str, str)
+O{ .{double; sqrt{2.0}} }
+```
+
+- 新增顶层语法：`#link "短名|全路径"`、`extern <ret> <name>(<types>)`，出参用 `T&`
+- C 后端：生成 `extern` 原型（跳过 libc 已有原型）、按参数类型转换（str→`const char*`、出参→`(T*)&_mem[addr]`），
+  `--cc` 把 `#link` 拼进链接命令（短名 `-l<name>`，含 `/` 或 `.so` 原样传）
+- 解释器：调用 extern 直接报错 —— **v1.2 已知偏差**，写进 SPEC §5.6
+- 测试：`tests/cc/` 新增 math（libm）、string（libc）两组，`run_tests.sh` 新增「C 互操作」组
+- SPEC 升到 **v1.2-dev**；全套 **93/93**
+
+下一步（P1）：`handle` 类型 + 出参组合，打通 sqlite3 / zlib / libcurl 这类句柄式 API。
