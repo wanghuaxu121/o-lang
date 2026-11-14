@@ -1,0 +1,11 @@
+// SPEC §7.1 // 块级作用域：内层同名变量遮蔽外层，出块后恢复
+O{
+    int i = 100;
+    int k = 0;
+    while (k < 2) {
+        int i = k;
+        print("%d ", i);
+        k = k + 1;
+    }
+    print("\nouter=%d\n", i);
+}

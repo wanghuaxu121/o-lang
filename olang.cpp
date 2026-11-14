@@ -522,7 +522,17 @@ struct Parser {
     Lexer lx;
     Token cur, nxt;
     vector<shared_ptr<Expr> > anonFns;   // 所有 o{} 字面量，layout 时统一分配
-    map<string,int> scopeNames;          // 当前函数 / O{} 作用域里已声明的名字（O 的块不引入新作用域）
+    map<string,int> scopeNames;          // 当前函数 / O{} 作用域里已声明的名字
+    vector<map<string,string> > shadow;  // 块作用域：外层名 -> 内层实际名（重名时改名）
+    int shadowSeq = 0;
+
+    string nameFor(const string& n) {    // 引用解析：从最内层块往外找影子
+        for (int i = (int)shadow.size() - 1; i >= 0; --i) {
+            map<string,string>::const_iterator it = shadow[i].find(n);
+            if (it != shadow[i].end()) return it->second;
+        }
+        return n;
+    }
 
     explicit Parser(const string& s) : lx(s) {
         cur = lx.next();
@@ -823,12 +833,14 @@ struct Parser {
     // ---- 块与语句 ----
     vector<SP> block() {
         expect(T_LBRACE, "'{'");
+        shadow.push_back(map<string,string>());
         vector<SP> v;
         while (!is(T_RBRACE)) {
             if (is(T_END)) throw Err("块没有结束的 '}'", cur.line);
             v.push_back(stmt());
         }
         expect(T_RBRACE, "'}'");
+        shadow.pop_back();
         return v;
     }
 
@@ -879,8 +891,13 @@ struct Parser {
         int ti = isVoid ? gTypes.iInt : gTypes.find(ty);
         if (ti < 0) throw Err("未知类型 '" + ty + "'", ln);
         string nm = expectId("变量名");
-        if (scopeNames.count(nm))
-            throw Err("重复声明 '" + nm + "'（O 的块不引入新作用域，同一个函数里请换名）", ln);
+        if (scopeNames.count(nm)) {                   // 内层块重名 → 改名，引用走 nameFor
+            string u = nm + "#" + fmt("%lld", (long long)++shadowSeq);
+            if (!shadow.empty()) shadow.back()[nm] = u;
+            nm = u;
+        } else if (!shadow.empty()) {
+            shadow.back()[nm] = nm;
+        }
         DP d(new Decl());
         d->line = ln; d->type = ty; d->name = nm; d->ty = ti; d->elems = 1;
         if (allowFn && is(T_LPAREN)) {                    // 函数定义
@@ -979,7 +996,7 @@ struct Parser {
     // 裸变量名：a / a[i] / p.x
     EP bareRef() {
         EP e = mk(Expr::RefE);
-        e->s = cur.s;
+        e->s = nameFor(cur.s);
         e->line = cur.line;
         advance();
         for (;;) {
