@@ -448,7 +448,7 @@ struct Expr {
 };
 
 struct Stmt {
-    enum K { DeclS, AssignS, IfS, WhileS, RetS, BreakS, OutS, InS, ExprS } k;
+    enum K { DeclS, AssignS, IfS, WhileS, RetS, BreakS, ContinueS, OutS, InS, ExprS } k;
     DP decl;
     EP e, e2;                 // 条件/值/左值
     vector<SP> body;
@@ -933,6 +933,12 @@ struct Parser {
             if (is(T_SEMI)) advance();
             return s;
         }
+        if (is(T_ID) && cur.s == "continue") {
+            SP s = wrap(Stmt::ContinueS);
+            advance();
+            if (is(T_SEMI)) advance();
+            return s;
+        }
         if (is(T_ID) && cur.s == "break") {
             SP s = wrap(Stmt::BreakS);
             advance();
@@ -944,6 +950,15 @@ struct Parser {
             advance();
             if (!is(T_LPAREN)) throw Err("print 后面要跟 (表达式)", cur.line);
             advance();
+            if (is(T_STR) && nxt.k == T_COMMA) {        // print("a=%d", x)：复用 fmt
+                s->isFmt = true;
+                s->ty = gTypes.iStr;
+                s->args.push_back(expr());
+                while (is(T_COMMA)) { advance(); s->args.push_back(expr()); }
+                expect(T_RPAREN, "')'");
+                if (is(T_SEMI)) advance();
+                return s;
+            }
             s->e = expr();
             expect(T_RPAREN, "')'");
             if (is(T_SEMI)) advance();
@@ -1332,6 +1347,7 @@ struct Val {
 
 struct ReturnEx { Val v; };
 struct BreakEx {};
+struct ContinueEx {};
 
 static bool isTrueV(const Val& v) { return (v.ty == TY_DBL || v.ty == TY_FLOAT) ? v.d != 0.0 : v.i != 0; }
 static Val mkIntV(long long v) { Val x; x.ty = TY_INT; x.i = v; x.d = (double)v; return x; }
@@ -2254,6 +2270,9 @@ void Interp::annStmt(SP s) {
         else annTy(s->e);
         return;
     case Stmt::InS: if (s->e) annTy(s->e); return;
+    case Stmt::ContinueS:
+        if (annLoopDepth == 0) throw Err("continue 只能在循环内使用", s->line);
+        return;
     case Stmt::BreakS:
         if (annLoopDepth == 0)
             throw Err(annCurFn >= 0 ? "'!' 只能在循环内使用（不能跨函数）"
@@ -2348,6 +2367,7 @@ const char* Interp::stmtName(int k) {
     case Stmt::WhileS:  return "while";
     case Stmt::RetS:    return "return";
     case Stmt::BreakS:  return "break";
+    case Stmt::ContinueS: return "continue";
     case Stmt::OutS:    return "out";
     case Stmt::InS:     return "in";
     default:            return "expr";
@@ -2435,6 +2455,7 @@ void Interp::execInner(SP s) {
     case Stmt::WhileS:
         while (isTrueV(eval(s->e))) {
             try { execBody(s->body); }
+            catch (ContinueEx&) { continue; }
             catch (BreakEx&) { break; }
         }
         return;
@@ -2445,6 +2466,8 @@ void Interp::execInner(SP s) {
     }
     case Stmt::BreakS:
         throw BreakEx();
+    case Stmt::ContinueS:
+        throw ContinueEx();
     case Stmt::OutS: {
         if (s->isFmt) {                                    // .{fmt; "…"; 实参…}
             if (s->args.empty() || s->args[0]->k != Expr::StrE) throw Err("fmt 的第一个参数必须是格式串字面量", s->line);
@@ -2666,6 +2689,7 @@ struct CEmit {
         if (!st) return false;
         switch (st->k) {
         case Stmt::DeclS:  return st->decl && escExpr(st->decl->init, nm);
+        case Stmt::ContinueS: return false;
         case Stmt::InS:    return plainRef(st->e) && st->e->s == nm;   // 输入直接写入参数槽
         case Stmt::IfS:
         case Stmt::WhileS: return escExpr(st->e, nm) || escBody(st->body, nm) || escBody(st->elseBody, nm);
@@ -3068,6 +3092,9 @@ struct CEmit {
         case Stmt::BreakS:
             if (loopDepth <= 0) { fail("'!' 只能在循环内使用"); return; }
             put("break;");
+            return;
+        case Stmt::ContinueS:
+            put("continue;");
             return;
         case Stmt::AssignS:
             fail("内部错误：AssignS 不该出现在 AST 里");

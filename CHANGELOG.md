@@ -354,3 +354,9 @@ O{ .{double; sqrt{2.0}} }
 
 还没做：`continue`、`print` 的格式化形式、带参方法（`s.find(",")`）、
 `--emit-o` 迁移工具、examples/tests 批量改写、SPEC 语法章节重写。
+
+### 三十、continue 与格式化 print（v2.0 · S2.1）
+
+- `continue;`：新 AST 节点 `ContinueS`，解释器用 `ContinueEx` 跳出本次迭代，C 后端直接发 `continue;`
+- `print("x=%d s=%d\n", x, s)`：复用现有 fmt 机制（`%d %c %s %g`），两端一致
+- 新探针 `p_cflow`（continue / break / 格式化输出）；测试 **102** 项
