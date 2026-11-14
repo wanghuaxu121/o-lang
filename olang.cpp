@@ -45,7 +45,7 @@ using namespace std;
 #define OLANG_VERSION "1.1.0"
 #endif
 
-enum { MEM_SIZE = 1024 };          // 默认地址空间（可被 #mem 或 --mem-size 覆盖）
+enum { MEM_SIZE = 16384 };          // 默认地址空间（可被 #mem 或 --mem-size 覆盖）
 enum { MEM_SIZE_MAX = 1 << 20 };   // 上限：1M 单元 = 8 MB
 
 // ---------------------------------------------------------------- 错误

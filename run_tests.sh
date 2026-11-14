@@ -88,7 +88,7 @@ else fail=$((fail+1)); echo "[FAIL] 解释器拒绝 extern"; fi
 echo "== 工具自检（--map --json / --mem / --trace）=="
 if "$BIN" examples/sum.o --map --json 2>/dev/null | python3 -c 'import json,sys
 d=json.load(sys.stdin)
-assert d["mem_size"]==1024 and d["stack_top"]==1023
+assert d["mem_size"]==16384 and d["stack_top"]==16383
 assert any(e["name"]=="a" and e["elems"]==10 and e["addr"]==0 for e in d["entries"])' 2>/dev/null; then
     pass=$((pass+1)); echo "[ OK ] --map --json"
 else fail=$((fail+1)); echo "[FAIL] --map --json"; fi
