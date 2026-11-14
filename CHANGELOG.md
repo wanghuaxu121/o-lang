@@ -301,3 +301,11 @@ O{ .{double; sqrt{2.0}} }
 - SPEC 升到 **v1.2-dev**；全套 **93/93**
 
 下一步（P1）：`handle` 类型 + 出参组合，打通 sqlite3 / zlib / libcurl 这类句柄式 API。
+
+### 二十七、`handle` 类型 + sqlite3 打通（C 互操作 P1）
+
+- 新类型 `handle`：1 个单元存 C 指针，**只能传参/比较/存**，不能解引用、不能算术（标注期报错）
+- `extern` 支持 `handle` 与 `handle&`：出参生成 `(void**)&_mem[addr].i`
+- 端到端验证：`tests/cc/sqlite.o` 用 O 打开内存库、建表、插入、关闭，rc 全 0，并打出 SQLite 版本号
+- `run_tests.sh`：C 互操作组遇到不存在的 `#link` 全路径时跳过（跨平台友好）；新增「handle 禁止算术」检查
+- SPEC §5.4/§5.6 补 handle；全套 **95/95**

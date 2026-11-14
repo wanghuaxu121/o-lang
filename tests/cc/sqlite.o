@@ -1,0 +1,32 @@
+// SPEC §5.6
+// C 互操作（P1）：sqlite3 —— handle + 出参
+#link "/lib/aarch64-linux-gnu/libsqlite3.so.0"
+
+extern str  sqlite3_libversion()
+extern int  sqlite3_open(str, handle&)
+extern int  sqlite3_exec(handle, str, handle, handle, handle)
+extern int  sqlite3_close(handle)
+
+O{
+    .{str; sqlite3_libversion{}}
+    .{str; "\n"}
+
+    &{handle;db} = {}
+    &{int;rc} = {0}
+
+    ${rc} = sqlite3_open{":memory:", ${db}}
+    .{int; ${rc}}
+    .{str; " "}
+
+    (${db} != {0}){
+        ${rc} = sqlite3_exec{${db}, "CREATE TABLE t(x INT)", {0}, {0}, {0}}
+        .{int; ${rc}}
+        .{str; " "}
+        ${rc} = sqlite3_exec{${db}, "INSERT INTO t VALUES(42)", {0}, {0}, {0}}
+        .{int; ${rc}}
+        .{str; " "}
+        ${rc} = sqlite3_close{${db}}
+        .{int; ${rc}}
+    }
+    .{str; "\n"}
+}

@@ -61,11 +61,26 @@ done
 echo "== C 互操作（tests/cc，仅 --cc）=="
 for f in tests/cc/*.o; do
     n=$(basename "$f" .o)
+    lib=$(grep -o '#link "/[^"]*"' "$f" | sed 's/#link "//; s/"$//')
+    if [ -n "$lib" ] && [ ! -e "$lib" ]; then
+        skip=$((skip+1)); echo "[SKIP] cc/$n（缺 $lib）"; continue
+    fi
     got=$(timeout 120 "$BIN" "$f" --cc </dev/null 2>&1 | norm)
     want=$(norm < "tests/cc/$n.expected")
     if [ "$got" = "$want" ]; then pass=$((pass+1)); echo "[ OK ] cc/$n"
     else fail=$((fail+1)); echo "[FAIL] cc/$n"; echo "   期望: $want"; echo "   实际: $got"; fi
 done
+cat > /tmp/.handle_arith.o <<'OO'
+extern int sqlite3_close(handle)
+O{
+    &{handle;h} = {}
+    .{int; ${h} + {1}}
+}
+OO
+if "$BIN" /tmp/.handle_arith.o 2>&1 | grep -q 'handle 只能比较'; then
+    pass=$((pass+1)); echo "[ OK ] handle 禁止算术"
+else fail=$((fail+1)); echo "[FAIL] handle 禁止算术"; fi
+rm -f /tmp/.handle_arith.o
 if "$BIN" tests/cc/math.o </dev/null 2>&1 | grep -q 'extern 函数'; then
     pass=$((pass+1)); echo "[ OK ] 解释器拒绝 extern"
 else fail=$((fail+1)); echo "[FAIL] 解释器拒绝 extern"; fi

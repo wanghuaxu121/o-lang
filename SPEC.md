@@ -294,6 +294,7 @@ v0.5 第 2.3 节写 `int{0;9}` 占 10 格、`size = 10`，即**一个 int 占一
 │ fn         │ int64 下标   │ 1      │ 函数值                                 │
 │ str        │ 整数（池下标/指针）│ 1 │ 只读；只能按**内容**比较 == / !=；不可当整数用 │
 │ char       │ int64        │ 1      │ 值域 0..255，存储时截断到无符号 8 位     │
+│ handle     │ int64 指针值 │ 1      │ C 的不透明句柄；不可解引用、不可算术      │
 └────────────┴──────────────┴────────┴────────────────────────────────────────┘
 ```
 
@@ -409,7 +410,31 @@ O{
 | `int` / `bool` / `char` | `int32_t` | 32 位 |
 | `double` / `float` | `double` | |
 | `str` | `const char*` | 字符串两端表示不同，跨 C 调用只在 C 后端成立 |
+| `handle` | `void*` | 不透明指针：只能传参、比较、存；不能解引用或参与算术 |
 | `T&`（出参） | `T*` | 调用时传变量，生成 `(T*)&_mem[addr]` |
+
+**句柄式 API（P1）**
+
+```o
+#link "/lib/aarch64-linux-gnu/libsqlite3.so.0"
+extern str  sqlite3_libversion()
+extern int  sqlite3_open(str, handle&)          // 出参：把句柄写回 _mem 的格子
+extern int  sqlite3_exec(handle, str, handle, handle, handle)
+extern int  sqlite3_close(handle)
+
+O{
+    &{handle;db} = {}
+    &{int;rc} = {0}
+    ${rc} = sqlite3_open{":memory:", ${db}}
+    (${db} != {0}){
+        ${rc} = sqlite3_exec{${db}, "CREATE TABLE t(x INT)", {0}, {0}, {0}}
+        sqlite3_close{${db}}
+    }
+}
+```
+
+`handle` 的规则：只能 `==` / `!=`（和另一个 handle 或字面量 `0` 比），其余运算在标注期报错；
+`--mem` 里看到的是指针值本身，C 库自己的内存**不在** O 的地址空间里。
 
 **约束**
 

@@ -241,7 +241,7 @@ struct Lexer {
 // 注意：TY_* 是「种类」常量，不是「类型表下标」。从 100 开始，杜绝下标与种类混用而不报错。
 enum {
     TY_BOOL = 100, TY_INT = 101, TY_FLOAT = 102, TY_DBL = 103,
-    TY_FN = 104, TY_STR = 105, TY_STRUCT = 106, TY_CHAR = 107
+    TY_FN = 104, TY_STR = 105, TY_STRUCT = 106, TY_CHAR = 107, TY_HANDLE = 108
 };
 
 struct TypeInfo {
@@ -260,8 +260,8 @@ struct TypeInfo {
 struct TypeTable {
     vector<TypeInfo> t;
     map<string, int> byName;
-    int iBool, iInt, iFloat, iDbl, iFn, iStr, iChar;   // 内置类型在表中的下标
-    TypeTable() : iBool(0), iInt(0), iFloat(0), iDbl(0), iFn(0), iStr(0), iChar(0) {
+    int iBool, iInt, iFloat, iDbl, iFn, iStr, iChar, iHandle;   // 内置类型在表中的下标
+    TypeTable() : iBool(0), iInt(0), iFloat(0), iDbl(0), iFn(0), iStr(0), iChar(0), iHandle(0) {
         iBool  = add("bool", TY_BOOL, 1);
         iInt   = add("int", TY_INT, 1);
         iFloat = add("float", TY_FLOAT, 1);
@@ -269,6 +269,7 @@ struct TypeTable {
         iFn    = add("fn", TY_FN, 1);
         iStr   = add("str", TY_STR, 1);
         iChar  = add("char", TY_CHAR, 1);
+        iHandle = add("handle", TY_HANDLE, 1);
     }
     // fn{ret;arg,arg} 带签名的函数类型（按规范名去重）
     int addSig(int ret, const vector<int>& args) {
@@ -566,6 +567,7 @@ struct Parser {
         if (t == "double") return gTypes.iDbl;
         if (t == "float") return gTypes.iFloat >= 0 ? gTypes.iFloat : gTypes.iDbl;
         if (t == "str") return gTypes.iStr;
+        if (t == "handle") return gTypes.iHandle;
         throw Err("extern 暂不支持的类型 '" + t + "'（P0 可用：int/bool/char/double/float/str）", line);
     }
 
@@ -1189,6 +1191,7 @@ static Val convV(const Val& v, int ty) {
     if (k == TY_CHAR) return mkIntV((long long)(unsigned char)(vf ? (long long)v.d : v.i));
     if (k == TY_BOOL) return mkBoolV(isTrueV(v) ? 1 : 0);
     if (k == TY_FN) return mkFnV(v.i);
+    if (k == TY_HANDLE) return mkIntV(v.i);        // 不透明指针值：不截断、不参与算术
     if (k == TY_STR) {
         if (v.ty != TY_STR) throw Err("不能把非字符串值转换为 str");
         return v;
@@ -1821,6 +1824,11 @@ Val Interp::eval(EP e) {
         if (e->op == T_OR) return mkBoolV(isTrueV(l) || isTrueV(eval(e->b)) ? 1 : 0);
         Val r = eval(e->b);
 
+        if (l.ty == TY_HANDLE || r.ty == TY_HANDLE) {
+            if (e->op != T_EQ && e->op != T_NE) throw Err("handle 只能比较 == / !=", e->line);
+            bool eq = (l.i == r.i);
+            return mkBoolV(e->op == T_EQ ? (eq ? 1 : 0) : (eq ? 0 : 1));
+        }
         // 字符串：按内容比较相等性；+ 为拼接
         if (l.ty == TY_STR || r.ty == TY_STR) {
             if (l.ty != TY_STR || r.ty != TY_STR) throw Err("str 不能与非字符串比较", e->line);
@@ -2001,6 +2009,10 @@ int Interp::annTy(EP e) {
             return e->ty = (gTypes.kindOf(lt) == TY_FLOAT ? gTypes.iDbl : lt);
         }
         int l = annTy(e->a), r = annTy(e->b);
+        if (gTypes.kindOf(l) == TY_HANDLE || gTypes.kindOf(r) == TY_HANDLE) {
+            if (e->op == T_EQ || e->op == T_NE) return e->ty = gTypes.iBool;
+            throw Err("handle 只能比较 == / !=（不可解引用、不可算术）", e->line);
+        }
         if (gTypes.kindOf(l) == TY_STR || gTypes.kindOf(r) == TY_STR) {
             if (gTypes.kindOf(l) != TY_STR || gTypes.kindOf(r) != TY_STR)
                 throw Err("str 不能与非字符串混合运算", e->line);
@@ -2375,6 +2387,7 @@ struct CEmit {
         if (k == TY_FLOAT) return "(double)(float)(" + e + ")";   // float 要按 32 位舍入，与解释器一致
         if (k == TY_CHAR) return "(int64_t)(unsigned char)(" + e + ")";
         if (k == TY_STR) return "(int64_t)(" + e + ")";
+        if (k == TY_HANDLE) return "(int64_t)(" + e + ")";
         if (k == TY_BOOL) return "(int64_t)((" + e + ") ? 1 : 0)";
         return "(int64_t)(int32_t)(" + e + ")";
     }
@@ -2543,8 +2556,10 @@ struct CEmit {
         int k = gTypes.kindOf(ty);
         if (k == TY_DBL || k == TY_FLOAT) return "double";
         if (k == TY_STR) return "const char*";
+        if (k == TY_HANDLE) return "void*";
         return "int32_t";
     }
+    static bool isHandleTy(int ty) { return gTypes.kindOf(ty) == TY_HANDLE; }
 
     // 间接调用：按函数下标生成派发链（候选 = 参数个数相同的所有函数）
     string callIndirect(const string& idxEx, const vector<EP>& args, int resultTy, int calleeTy = -1) {
@@ -2594,6 +2609,8 @@ struct CEmit {
                         int vt = gTypes.iInt;
                         string a = addrOf(args[i], vt);
                         s += "(" + cTypeExtern(pt) + "*)&_mem[" + a + "]." + (isF(pt) ? "d" : "i");
+                    } else if (gTypes.kindOf(pt) == TY_HANDLE) {
+                        s += "(void*)(intptr_t)(" + asI(args[i]) + ")";
                     } else if (gTypes.kindOf(pt) == TY_STR) {
                         s += "(const char*)(intptr_t)(" + asI(args[i]) + ")";
                     } else if (isF(pt)) {
