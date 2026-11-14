@@ -860,9 +860,20 @@ struct Parser {
                     string pn = expectId("参数名");
                     if (scopeNames.count(pn))
                         throw Err("参数名重复 '" + pn + "'", pl);
+                    int pe = 1;
+                    if (is(T_LBRACK)) {                  // 数组形参：int a[0..3] → &a + 长度 4
+                        advance();
+                        long long lo = num();
+                        expect(T_DOT, "'..'"); expect(T_DOT, "'..'");
+                        long long hi = num();
+                        expect(T_RBRACK, "']'");
+                        if (hi < lo) throw Err("数组形参区间长度必须 >= 1", pl);
+                        ref = true;
+                        pe = (int)(hi - lo + 1);
+                    }
                     d->params.push_back(pn); d->paramTy.push_back(pti);
                     d->paramRef.push_back(ref ? 1 : 0);
-                    d->paramElems.push_back(1);
+                    d->paramElems.push_back(pe);
                     if (is(T_COMMA)) { advance(); continue; }
                     break;
                 }
