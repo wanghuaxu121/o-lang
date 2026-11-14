@@ -1,0 +1,23 @@
+// SPEC §3 // C 风格语法：声明/函数/调用/索引/if-else/while/print
+int add(int a, int b) { return a + b; }
+
+O{
+    int x = 5;
+    int y = 7;
+    print(add(x, y));
+    print("\n");
+
+    if (x > 3) { print("big\n"); } else { print("small\n"); }
+
+    int a[8..11];
+    a[0] = 10;
+    a[1] = 20;
+    print(a[0] + a[1]);
+    print("\n");
+
+    int i = 0;
+    int s = 0;
+    while (i < 3) { s = s + a[i]; i = i + 1; }
+    print(s);
+    print("\n");
+}

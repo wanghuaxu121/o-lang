@@ -452,6 +452,7 @@ struct Stmt {
     DP decl;
     EP e, e2;                 // 条件/值/左值
     vector<SP> body;
+    vector<SP> elseBody;      // if/else 的 else 分支（C 风格语法）
     vector<EP> args;          // fmt 语句的实参（args[0] = 格式串字面量）
     bool isFmt;               // .{fmt; …} 格式化输出
     int ty;                   // out/in 的类型下标
@@ -607,6 +608,10 @@ struct Parser {
                 continue;
             }
             if (isId("extern")) { externDecl(); continue; }
+            if (is(T_ID) && gTypes.find(cur.s) >= 0 && nxt.k == T_ID) {
+                topDecls.push_back(cdecl(true));
+                continue;
+            }
             topDecls.push_back(decl());
         }
         if (!isId("O")) throw Err("缺少唯一的入口 O{...}", cur.line);
@@ -794,6 +799,99 @@ struct Parser {
         return s;
     }
 
+    // C 风格声明：int x = 5;  /  int a[0..9];  /  int f(int a, int& b) { … }
+    DP cdecl(bool allowFn) {
+        int ln = cur.line;
+        string ty = expectId("类型名");
+        int ti = gTypes.find(ty);
+        if (ti < 0) throw Err("未知类型 '" + ty + "'", ln);
+        string nm = expectId("变量名");
+        DP d(new Decl());
+        d->line = ln; d->type = ty; d->name = nm; d->ty = ti; d->elems = 1;
+        if (allowFn && is(T_LPAREN)) {                    // 函数定义
+            advance();
+            if (!is(T_RPAREN)) {
+                for (;;) {
+                    int pl = cur.line;
+                    string pt = expectId("参数类型");
+                    int pti = gTypes.find(pt);
+                    if (pti < 0) throw Err("未知参数类型 '" + pt + "'", pl);
+                    bool ref = false;
+                    if (is(T_AMP)) { ref = true; advance(); }
+                    string pn = expectId("参数名");
+                    d->params.push_back(pn); d->paramTy.push_back(pti);
+                    d->paramRef.push_back(ref ? 1 : 0);
+                    d->paramElems.push_back(1);
+                    if (is(T_COMMA)) { advance(); continue; }
+                    break;
+                }
+            }
+            expect(T_RPAREN, "')'");
+            if (!is(T_LBRACE)) throw Err("函数定义缺少函数体", ln);
+            d->body = block();
+            d->isFn = true;
+            return d;
+        }
+        if (is(T_LBRACK)) {                               // 显式区间 [a..b]
+            advance();
+            long long a = num();
+            expect(T_DOT, "'..'"); expect(T_DOT, "'..'");
+            long long b = num();
+            expect(T_RBRACK, "']'");
+            d->x = (int)a; d->y = (int)b; d->hasFence = true;
+            d->elems = (int)(b - a + 1);
+            if (d->elems < 1) throw Err("地址区间长度必须 >= 1", ln);
+        }
+        if (is(T_ASSIGN)) {
+            advance();
+            if (is(T_LBRACE) && nxt.k == T_RBRACE) { advance(); advance(); }
+            else if (is(T_LBRACE)) {                      // {1, 2, 3} / {1;2;3}
+                EP lst = mk(Expr::ListE);
+                advance();
+                for (;;) {
+                    lst->kids.push_back(expr());
+                    if (is(T_COMMA) || is(T_SEMI)) { advance(); continue; }
+                    break;
+                }
+                expect(T_RBRACE, "'}'");
+                d->init = lst;
+            }
+            else d->init = expr();
+        }
+        if (is(T_SEMI)) advance();
+        return d;
+    }
+
+    // 裸变量名：a / a[i] / p.x
+    EP bareRef() {
+        EP e = mk(Expr::RefE);
+        e->s = cur.s;
+        e->line = cur.line;
+        advance();
+        for (;;) {
+            if (is(T_LBRACK)) {
+                advance();
+                e->kids.push_back(expr());
+                expect(T_RBRACK, "']'");
+                continue;
+            }
+            if (is(T_DOT)) {
+                advance();
+                string fld = expectId("字段名");
+                if (is(T_LPAREN)) {                       // 方法：s.len() / s.size()
+                    advance();
+                    expect(T_RPAREN, "')'");
+                    e->method = fld;
+                    continue;
+                }
+                e->fields.push_back(fld);
+                continue;
+            }
+            break;
+        }
+        return e;
+    }
+
     SP stmt() {
         if (is(T_HASH)) {                          // #{"lib"} 也可以写在 O{} 里
             importStmt();
@@ -806,6 +904,54 @@ struct Parser {
         if (is(T_AMP)) {
             SP s = wrap(Stmt::DeclS);
             s->decl = decl();
+            return s;
+        }
+        if (is(T_ID) && (cur.s == "if" || cur.s == "while")) {
+            bool isIf = (cur.s == "if");
+            SP s = wrap(isIf ? Stmt::IfS : Stmt::WhileS);
+            advance();
+            if (!is(T_LPAREN)) throw Err("if/while 后面要跟 (条件)", cur.line);
+            advance();
+            s->e = expr();
+            expect(T_RPAREN, "')'");
+            s->body = block();
+            if (isIf && isId("else")) {
+                advance();
+                if (isId("if")) {                      // else if → 嵌套
+                    s->elseBody.push_back(stmt());
+                } else {
+                    s->elseBody = block();
+                }
+            }
+            return s;
+        }
+        if (is(T_ID) && cur.s == "return") {
+            SP s = wrap(Stmt::RetS);
+            advance();
+            if (!is(T_RBRACE) && !is(T_SEMI)) s->e = expr();
+            else { EP z = mk(Expr::Num); z->num = 0; s->e = z; }
+            if (is(T_SEMI)) advance();
+            return s;
+        }
+        if (is(T_ID) && cur.s == "break") {
+            SP s = wrap(Stmt::BreakS);
+            advance();
+            if (is(T_SEMI)) advance();
+            return s;
+        }
+        if (is(T_ID) && cur.s == "print") {
+            SP s = wrap(Stmt::OutS);
+            advance();
+            if (!is(T_LPAREN)) throw Err("print 后面要跟 (表达式)", cur.line);
+            advance();
+            s->e = expr();
+            expect(T_RPAREN, "')'");
+            if (is(T_SEMI)) advance();
+            return s;                                  // ty 留给标注期推断
+        }
+        if (is(T_ID) && gTypes.find(cur.s) >= 0 && nxt.k == T_ID) {   // int x = 5;
+            SP s = wrap(Stmt::DeclS);
+            s->decl = cdecl(false);
             return s;
         }
         if (is(T_LPAREN)) {                       // 条件
@@ -871,6 +1017,7 @@ struct Parser {
         // 表达式语句 / 赋值
         SP s = wrap(Stmt::ExprS);
         s->e = expr();
+        if (is(T_SEMI)) advance();                 // C 风格语句末尾的分号
         return s;
     }
 
@@ -1045,6 +1192,17 @@ struct Parser {
                 anonFns.push_back(e);
                 return e;
             }
+            if (nxt.k == T_LPAREN) {                 // 调用 f(args)
+                EP e = mk(Expr::CallE);
+                e->s = cur.s;
+                advance(); advance();
+                if (!is(T_RPAREN)) {
+                    e->kids.push_back(expr());
+                    while (is(T_COMMA)) { advance(); e->kids.push_back(expr()); }
+                }
+                expect(T_RPAREN, "')'");
+                return e;
+            }
             if (nxt.k == T_LBRACE) {                 // 调用 f{...}
                 EP e = mk(Expr::CallE);
                 e->s = cur.s;
@@ -1057,6 +1215,7 @@ struct Parser {
                 expect(T_RBRACE, "'}'");
                 return e;
             }
+            if (gTypes.find(cur.s) < 0) return bareRef();   // 裸变量名 / 字段 / 下标
             throw Err("标识符 '" + cur.s + "' 不能单独当值用；变量请写 ${" + cur.s + "}", cur.line);
         }
         throw Err("这里应该是一个值", cur.line);
@@ -1708,7 +1867,7 @@ struct Interp {
                 vi.addr = s->decl->addr; vi.elems = s->decl->elems; vi.ty = s->decl->ty;
                 annLoc[s->decl->name] = vi;
             }
-            if (s->k == Stmt::IfS || s->k == Stmt::WhileS) annLocals(s->body);
+            if (s->k == Stmt::IfS || s->k == Stmt::WhileS) { annLocals(s->body); annLocals(s->elseBody); }
         }
     }
 
@@ -2063,7 +2222,7 @@ void Interp::annStmt(SP s) {
         }
         return;
     case Stmt::ExprS: annTy(s->e); return;
-    case Stmt::IfS: annTy(s->e); annBody(s->body); return;
+    case Stmt::IfS: annTy(s->e); annBody(s->body); annBody(s->elseBody); return;
     case Stmt::WhileS:
         annTy(s->e);
         annLoopDepth++;
@@ -2091,7 +2250,8 @@ void Interp::annStmt(SP s) {
             for (size_t i = 1; i < s->args.size(); ++i) annTy(s->args[i]);
             return;
         }
-        annTy(s->e);
+        if (s->ty < 0 && s->e) s->ty = annTy(s->e);       // print(e)：类型从表达式推断
+        else annTy(s->e);
         return;
     case Stmt::InS: if (s->e) annTy(s->e); return;
     case Stmt::BreakS:
@@ -2270,6 +2430,7 @@ void Interp::execInner(SP s) {
         return;
     case Stmt::IfS:
         if (isTrueV(eval(s->e))) execBody(s->body);
+        else if (!s->elseBody.empty()) execBody(s->elseBody);
         return;
     case Stmt::WhileS:
         while (isTrueV(eval(s->e))) {
@@ -2421,7 +2582,7 @@ struct CEmit {
                 vi.addr = s->decl->addr; vi.elems = s->decl->elems; vi.ty = s->decl->ty;
                 loc[s->decl->name] = vi;
             }
-            if (s->k == Stmt::IfS || s->k == Stmt::WhileS) collect(s->body);
+            if (s->k == Stmt::IfS || s->k == Stmt::WhileS) { collect(s->body); collect(s->elseBody); }
         }
     }
 
@@ -2507,7 +2668,7 @@ struct CEmit {
         case Stmt::DeclS:  return st->decl && escExpr(st->decl->init, nm);
         case Stmt::InS:    return plainRef(st->e) && st->e->s == nm;   // 输入直接写入参数槽
         case Stmt::IfS:
-        case Stmt::WhileS: return escExpr(st->e, nm) || escBody(st->body, nm);
+        case Stmt::WhileS: return escExpr(st->e, nm) || escBody(st->body, nm) || escBody(st->elseBody, nm);
         case Stmt::RetS:   return escExpr(st->e, nm);
         case Stmt::OutS:   return escExpr(st->e, nm);
         case Stmt::ExprS:  return escExpr(st->e, nm);
@@ -2888,6 +3049,10 @@ struct CEmit {
         case Stmt::IfS:
             put("if ((int32_t)(" + asI(s->e) + ")) {");
             ind++; block(s->body); ind--;
+            if (!s->elseBody.empty()) {
+                put("} else {");
+                ind++; block(s->elseBody); ind--;
+            }
             put("}");
             return;
         case Stmt::WhileS:
@@ -3063,6 +3228,8 @@ struct CEmit {
             if (exprCallsFrame(s->e, nf) || exprCallsFrame(s->e2, nf)) return true;
             for (size_t i = 0; i < s->body.size(); ++i)
                 if (stmtCallsFrame(s->body[i], nf)) return true;
+            for (size_t i = 0; i < s->elseBody.size(); ++i)
+                if (stmtCallsFrame(s->elseBody[i], nf)) return true;
             return false;
         }
         case Stmt::RetS:    return exprCallsFrame(s->e, nf);
