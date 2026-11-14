@@ -806,6 +806,8 @@ struct Parser {
                 throw Err("fn 类型不能作引用参数（函数值是下标，不是可寻址对象）", cur.line);
             string nm = expectId("参数名");
             expect(T_RBRACE, "'}'");
+            if (!isRef && gTypes.kindOf(ti) == TY_STRUCT)
+                throw Err("结构体不能按值传参（会只拷第一个单元）：请改用引用参数 " + nm, cur.line);
             tys.push_back(ti);
             names.push_back(nm);
             refs.push_back(isRef ? 1 : 0);
@@ -894,6 +896,9 @@ struct Parser {
                     string pn = expectId("参数名");
                     if (scopeNames.count(pn))
                         throw Err("参数名重复 '" + pn + "'", pl);
+                    if (!ref && gTypes.kindOf(pti) == TY_STRUCT)
+                        throw Err("结构体不能按值传参（会只拷第一个单元）：请用引用参数 " + pt + "& " + pn
+                                  + " 或数组形参 " + pt + " " + pn + "[0..N]", pl);
                     int pe = 1;
                     if (is(T_LBRACK)) {                  // 数组形参：int a[0..3] → &a + 长度 4
                         advance();

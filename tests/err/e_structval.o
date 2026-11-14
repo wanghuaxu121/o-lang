@@ -1,0 +1,4 @@
+// 结构体按值传参：只拷第一个单元，必须直接报错
+struct P { int x; int y; }
+void show(P p) { print("%d\n", p.x); }
+O{ P a; show(a); }
