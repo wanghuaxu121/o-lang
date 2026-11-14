@@ -2440,6 +2440,21 @@ void Interp::dumpMem(FILE* out, bool all) {
     }
     if (!all)
         fprintf(out, "（非零单元 %d / %d；--mem=all 显示全部）\n", shown, memSize);
+    // 字符串池不在地址空间里（见 SPEC §5.5），但把内容一并打出来，透明性不留洞
+    if (!gStrPool.empty()) {
+        fprintf(out, "--- 字符串池（不在地址空间内，共 %d 条）---\n", (int)gStrPool.size());
+        for (size_t i = 0; i < gStrPool.size(); ++i) {
+            string q, e;
+            const string& src = gStrPool[i];
+            for (size_t k = 0; k < src.size(); ++k) {
+                if (src[k] == '\n') e += "\\n";
+                else if (src[k] == '\t') e += "\\t";
+                else e += src[k];
+            }
+            if (e.size() > 48) e = e.substr(0, 45) + "...";
+            fprintf(out, " %4d  \"%s\"\n", (int)i, e.c_str());
+        }
+    }
 }
 
 void Interp::dumpMapJson(FILE* out) {
