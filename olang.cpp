@@ -67,7 +67,7 @@ enum TK {
     T_AMP, T_LBRACE, T_RBRACE, T_LPAREN, T_RPAREN, T_LBRACK, T_RBRACK,
     T_COMMA, T_SEMI, T_DOLLAR, T_DOT, T_QUES, T_BANG, T_PIPE,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_ASSIGN,
-    T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE, T_AND, T_OR, T_TILDE, T_CARET, T_AT, T_COLON, T_HASH
+    T_EQ, T_NE, T_LT, T_LE, T_GT, T_GE, T_AND, T_OR, T_TILDE, T_CARET, T_AT, T_COLON, T_HASH, T_SHL, T_SHR
 };
 
 struct Token {
@@ -122,6 +122,17 @@ struct Lexer {
 
         char c = src[p];
         if (c >= '0' && c <= '9') {
+            if (c == '0' && (at(p + 1) == 'x' || at(p + 1) == 'X')) {     // 0x 十六进制
+                p += 2;
+                long long hv = 0;
+                while (p < src.size() && isxdigit((unsigned char)src[p])) {
+                    char ch = src[p];
+                    hv = hv * 16 + ((ch <= '9') ? ch - '0' : (tolower(ch) - 'a' + 10));
+                    ++p;
+                }
+                t.k = T_NUM; t.n = hv; t.fval = (double)hv; t.isFlt = false;
+                return t;
+            }
             long long v = 0;
             while (p < src.size() && src[p] >= '0' && src[p] <= '9') v = v * 10 + (src[p++] - '0');
             t.k = T_NUM;
@@ -240,9 +251,11 @@ struct Lexer {
             if (at(p) == '=') { ++p; t.k = T_EQ; return t; }
             t.k = T_ASSIGN; return t;
         case '<':
+            if (at(p) == '<') { ++p; t.k = T_SHL; return t; }
             if (at(p) == '=') { ++p; t.k = T_LE; return t; }
             t.k = T_LT; return t;
         case '>':
+            if (at(p) == '>') { ++p; t.k = T_SHR; return t; }
             if (at(p) == '=') { ++p; t.k = T_GE; return t; }
             t.k = T_GT; return t;
         case '&':
@@ -494,7 +507,7 @@ static vector<FmtPiece> splitFmt(const string& f, int* nspec) {
         if (i + 1 < f.size() && f[i + 1] == '%') { lit += '%'; ++i; continue; }
         if (i + 1 >= f.size()) break;
         char c = f[i + 1];
-        if (!strchr("dcsgf", c)) { lit += f[i]; continue; }   // 不认识的占位符当字面量
+        if (!strchr("dcsgfx", c)) { lit += f[i]; continue; }   // 不认识的占位符当字面量
         if (!lit.empty()) { FmtPiece p; p.isSpec = false; p.text = lit; p.conv = 0; out.push_back(p); lit.clear(); }
         FmtPiece p; p.isSpec = true; p.text = string("%") + c; p.conv = c; out.push_back(p);
         ++i; ++n;
@@ -1120,7 +1133,7 @@ struct Parser {
 
     // ---- 表达式 ----
     EP expr() {
-        EP l = pipe();
+        EP l = or_();
         if (is(T_ASSIGN)) {
             int ln = cur.line;
             if (l->k != Expr::RefE) throw Err("赋值左边必须是引用 ${x}", ln);
@@ -1161,13 +1174,35 @@ struct Parser {
     }
 
     EP and_() {
+        EP l = bitOr();
+        while (is(T_AND)) { int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = T_AND; e->a = l; e->b = bitOr(); e->line = ln; l = e; }
+        return l;
+    }
+
+    // 位运算优先级：| < ^ < & < 比较（与 C 一致）
+    EP bitOr() {
+        EP l = bitXor();
+        while (is(T_PIPE)) { int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = T_PIPE; e->a = l; e->b = bitXor(); e->line = ln; l = e; }
+        return l;
+    }
+    EP bitXor() {
+        EP l = bitAnd();
+        while (is(T_CARET) && nxt.k != T_LBRACE) { int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = T_CARET; e->a = l; e->b = bitAnd(); e->line = ln; l = e; }
+        return l;
+    }
+    EP bitAnd() {
         EP l = cmp();
-        while (is(T_AND)) { int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = T_AND; e->a = l; e->b = cmp(); e->line = ln; l = e; }
+        while (is(T_AMP) && nxt.k != T_LBRACE) { int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = T_AMP; e->a = l; e->b = cmp(); e->line = ln; l = e; }
+        return l;
+    }
+    EP shift() {
+        EP l = add();
+        while (is(T_SHL) || is(T_SHR)) { int op = cur.k; int ln = cur.line; advance(); EP e = mk(Expr::BinE); e->op = op; e->a = l; e->b = add(); e->line = ln; l = e; }
         return l;
     }
 
     EP cmp() {
-        EP l = add();
+        EP l = shift();
         int op = 0;
         if (is(T_EQ)) op = T_EQ;
         else if (is(T_NE)) op = T_NE;
@@ -1179,7 +1214,7 @@ struct Parser {
         int ln = cur.line;
         advance();
         EP e = mk(Expr::BinE);
-        e->op = op; e->a = l; e->b = add(); e->line = ln;
+        e->op = op; e->a = l; e->b = shift(); e->line = ln;
         return e;
     }
 
@@ -2057,6 +2092,15 @@ Val Interp::eval(EP e) {
             bool eq = (l.i == r.i);
             return mkBoolV(e->op == T_EQ ? (eq ? 1 : 0) : (eq ? 0 : 1));
         }
+        if (e->op == T_AMP || e->op == T_PIPE || e->op == T_CARET || e->op == T_SHL || e->op == T_SHR) {
+            uint32_t a = (uint32_t)(int32_t)l.i, b = (uint32_t)(int32_t)r.i, x = 0;
+            if (e->op == T_AMP) x = a & b;
+            else if (e->op == T_PIPE) x = a | b;
+            else if (e->op == T_CARET) x = a ^ b;
+            else if (e->op == T_SHL) x = a << (b & 31);
+            else x = a >> (b & 31);
+            return mkIntV((long long)(int32_t)x);
+        }
         // 字符串：按内容比较相等性；+ 为拼接
         if (l.ty == TY_STR || r.ty == TY_STR) {
             if (l.ty != TY_STR || r.ty != TY_STR) throw Err("str 不能与非字符串比较", e->line);
@@ -2247,6 +2291,10 @@ int Interp::annTy(EP e) {
             if (e->op == T_PLUS) return e->ty = gTypes.iStr;
             if (e->op == T_EQ || e->op == T_NE) return e->ty = gTypes.iBool;
             throw Err("str 只能比较 == / != 或拼接 +", e->line);
+        }
+        if (e->op == T_AMP || e->op == T_PIPE || e->op == T_CARET || e->op == T_SHL || e->op == T_SHR) {
+            if (isFloatTy(l) || isFloatTy(r)) throw Err("位运算只能用于整数", e->line);
+            return e->ty = gTypes.iInt;
         }
         if (e->op == T_PERCENT && (isFloatTy(l) || isFloatTy(r)))    // 浮点取模：标注期就报，两端一致
             throw Err("浮点不能取模（请先 .as{int}）", e->line);
@@ -2537,6 +2585,7 @@ void Interp::execInner(SP s) {
                 if (c == 's') fputs(strAt(convV(v, gTypes.iStr).i).c_str(), stdout);
                 else if (c == 'd') printf("%d", (int)convV(v, gTypes.iInt).i);
                 else if (c == 'c') putchar((unsigned char)convV(v, gTypes.iChar).i);
+                else if (c == 'x') printf("%x", (unsigned)convV(v, gTypes.iInt).i);
                 else printf("%g", convV(v, gTypes.iDbl).d);
             }
             fflush(stdout);
@@ -3013,6 +3062,17 @@ struct CEmit {
                 fail("str 只能比较 == / != 或拼接 +");
                 return "0";
             }
+            if (e->op == T_AMP || e->op == T_PIPE || e->op == T_CARET || e->op == T_SHL || e->op == T_SHR) {
+                string a = "((uint32_t)(" + asI32(e->a) + "))";
+                string b = "((uint32_t)(" + asI32(e->b) + "))";
+                string x;
+                if (e->op == T_AMP) x = "(" + a + " & " + b + ")";
+                else if (e->op == T_PIPE) x = "(" + a + " | " + b + ")";
+                else if (e->op == T_CARET) x = "(" + a + " ^ " + b + ")";
+                else if (e->op == T_SHL) x = "(" + a + " << (" + b + " & 31))";
+                else x = "(" + a + " >> (" + b + " & 31))";
+                return "((int64_t)(int32_t)" + x + ")";
+            }
             const char* op = 0;
             switch (e->op) {
             case T_PLUS: op = "+"; break;
@@ -3168,6 +3228,7 @@ struct CEmit {
                     if (c == 's') put("fputs((const char*)(intptr_t)(" + asI(a) + "), stdout);");
                     else if (c == 'd') put("printf(\"%d\", (int)(" + asI(a) + "));");
                     else if (c == 'c') put("putchar((unsigned char)(" + asI(a) + "));");
+                    else if (c == 'x') put("printf(\"%x\", (unsigned)(" + asI(a) + "));");
                     else put("printf(\"%g\", (double)(" + asD(a) + "));");
                 }
                 return;
