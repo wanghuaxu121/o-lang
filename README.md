@@ -1,4 +1,52 @@
-# O 语言 · 参考解释器 + C 后端
+# O 语言
+
+> **O = C++ − C。** 剩下的那个 0，就是它。
+
+O 是一门**内存透明**的编译型小语言：每个变量在编译期就有确定地址，
+解释器与 C 后端共用同一张地址表，可以用 `--map` / `--mem` / `--trace` 直接观察。
+
+- **C 风格语法**：`int x = 5;` / `if/else` / `while` / `print("x=%d", x)`（旧语法 v2.1 前仍兼容）
+- **双后端**：树遍历解释器（可执行规范）+ C 后端（生成 C，交给 `gcc -O2`），同一程序**逐字节对拍**
+- **小而全**：无 GC、无动态分配、无宏；有引用参数、数组形参、struct、位运算、文件库、C 互操作
+- **可观察**：`--map` 打印地址布局，`--mem` dump 内存与字符串池，`--trace` 逐语句跟踪
+
+## 30 秒上手
+
+```bash
+git clone <repo> && cd o-lang
+g++ -std=c++17 -O2 -o olang olang.cpp
+
+./olang examples/hello.o          # 解释执行
+./olang examples/fib.o --cc       # 生成 C → gcc → 直接运行
+./run_tests.sh --fast             # 108 项回归（解释器 + C 后端）
+```
+
+```o
+struct Point { int x; int y; }
+
+int dist2(Point& p) { return p.x * p.x + p.y * p.y; }
+
+O{
+    Point p;
+    p.x = 3;
+    p.y = 4;
+    print("dist2 = %d\n", dist2(p));
+}
+```
+
+## 项目结构
+
+| 路径 | 内容 |
+|---|---|
+| `olang.cpp` | 单文件实现：词法 / 语法 / 类型 / 布局 / 解释器 / C 后端（约 3900 行） |
+| `SPEC.md` | 语言规范（v2.1） |
+| `docs/SYNTAX.md` | v2 C 风格语法速查 |
+| `examples/` `tests/` | 示例与回归用例（错误用例、双后端对拍） |
+| `tools/` | §15 验收 / 覆盖率 |
+| `editors/` | VS Code 语法高亮 |
+
+## 设计与实现（v0.6 → v1.1 的细节）
+
 
 对应 [SPEC v0.6.1 / v0.7 类型系统](SPEC.md)。分两层：
 
