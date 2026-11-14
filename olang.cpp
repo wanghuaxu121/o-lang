@@ -1007,7 +1007,9 @@ struct Parser {
     EP primary() {
         if (is(T_NUM)) {
             EP e = mk(Expr::Num);
-            e->num = cur.n;
+            // int 字面量在解析期就截断到 32 位：两个后端必须看到同一个值
+            // （{3000000000} == (int32_t)3000000000，解释器与 C 后端一致）
+            e->num = cur.isFlt ? cur.n : (long long)(int32_t)(uint32_t)(unsigned long long)cur.n;
             e->isFlt = cur.isFlt;
             e->fval = cur.fval;
             advance();
@@ -1303,13 +1305,15 @@ struct Interp {
             char mb[128];
             snprintf(mb, sizeof mb, "%4d  %-8s x%-3d size=%d  %s", d->addr, d->type.c_str(), d->elems, d->size, d->name.c_str());
             mapLines.push_back(make_pair(d->name, string(mb)));
-            if (warnAlias && d->hasFence) {            // §12.4：允许别名，但可以提示
+            if (warnAlias && d->hasFence) {           // §12.4：允许别名，默认静默，--walias 才提示
                 for (size_t k = 0; k < mapEntries.size(); ++k) {
                     const MapEntry& e = mapEntries[k];
-                    if (d->addr < e.addr + e.cells && e.addr < d->addr + d->size)
-                        fprintf(stderr, "warning: 地址区间 %s[%d..%d] 与 %s[%d..%d] 重叠（别名）\n",
-                                d->name.c_str(), d->addr, d->addr + d->size - 1,
-                                e.name.c_str(), e.addr, e.addr + e.cells - 1);
+                    if (!(d->addr < e.addr + e.cells && e.addr < d->addr + d->size)) continue;
+                    bool accidental = !e.hasFence;    // 自动分配的地址是编译器选的，重叠几乎必是笔误
+                    fprintf(stderr, "warning: 地址区间 %s[%d..%d] 与 %s[%d..%d] 重叠（别名）%s\n",
+                            d->name.c_str(), d->addr, d->addr + d->size - 1,
+                            e.name.c_str(), e.addr, e.addr + e.cells - 1,
+                            accidental ? "—— 显式区间压到了自动分配的变量上" : "");
                 }
             }
             MapEntry me;
@@ -2525,6 +2529,19 @@ struct CEmit {
         return isF(e->ty) ? "((int64_t)(" + s + "))" : s;
     }
 
+    // 32 位整数二元运算：用无符号 / int64 运算避免 C 的有符号溢出 UB，
+    // 结果按 int32 回绕 —— 与解释器“写入截断”的语义逐位一致（含 INT_MIN / -1）。
+    string intBin32(int op, const string& a, const string& b) {
+        switch (op) {
+        case T_PLUS:    return "((int32_t)((uint32_t)(" + a + ") + (uint32_t)(" + b + ")))";
+        case T_MINUS:   return "((int32_t)((uint32_t)(" + a + ") - (uint32_t)(" + b + ")))";
+        case T_STAR:    return "((int32_t)((uint32_t)(" + a + ") * (uint32_t)(" + b + ")))";
+        case T_SLASH:   return "((int32_t)((int64_t)(" + a + ") / (int64_t)(" + b + ")))";
+        case T_PERCENT: return "((int32_t)((int64_t)(" + a + ") % (int64_t)(" + b + ")))";
+        default:        return "((int32_t)0)";
+        }
+    }
+
     // 32 位整数表达式：寄存器局部/参数直接用 int32，其余在运算点收窄
     string asI32(EP e) {
         if (gTypes.kindOf(e->ty) == TY_INT) {
@@ -2540,7 +2557,7 @@ struct CEmit {
                 case T_PERCENT: op = "%"; break;
                 default: op = 0;
                 }
-                if (op) return "((int32_t)(" + asI32(e->a) + " " + op + " " + asI32(e->b) + "))";
+                if (op) return intBin32(e->op, asI32(e->a), asI32(e->b));
             }
         }
         return "((int32_t)(" + rv(e) + "))";
@@ -2776,7 +2793,12 @@ struct CEmit {
                 string x = "(" + asD(e->a) + " " + op + " " + asD(e->b) + ")";
                 return isF(e->ty) ? x : ("((int64_t)(" + x + "))");
             }
-            string x = "(" + asI32(e->a) + " " + op + " " + asI32(e->b) + ")";
+            string x;
+            if (e->op == T_PLUS || e->op == T_MINUS || e->op == T_STAR ||
+                e->op == T_SLASH || e->op == T_PERCENT)
+                x = intBin32(e->op, asI32(e->a), asI32(e->b));
+            else
+                x = "(" + asI32(e->a) + " " + op + " " + asI32(e->b) + ")";
             return isF(e->ty) ? ("((double)(" + x + "))") : ("((int64_t)(" + x + "))");
         }
         }
@@ -2938,8 +2960,7 @@ struct CEmit {
         if (n == "substr") return
             "static int64_t n_ssubstr(int64_t a,int64_t from,int64_t n){const char* s=(const char*)(intptr_t)a;"
             "int len=(int)strlen(s);if(from<0)from=0;if(from>len)from=len;if(n<0)n=0;if(from+n>len)n=len-from;"
-            "if(_stop+(int)n+1>(int)sizeof(_sarena)){fprintf(stderr,\"error: string arena full\\n\");exit(2);}"
-            "char* p=_sarena+_stop;memcpy(p,s+from,(size_t)n);p[n]=0;_stop+=(int)n+1;return (int64_t)(intptr_t)p;}\n";
+            "char* p=_salloc((int)n+1);memcpy(p,s+from,(size_t)n);p[n]=0;return (int64_t)(intptr_t)p;}\n";
         if (n == "system") return
             "static int64_t n_system(int64_t c){int r=system((const char*)(intptr_t)c);"
 #ifndef _WIN32
@@ -2990,6 +3011,79 @@ struct CEmit {
         return localsNeedFrame(fn.body, fn.body);
     }
 
+    // 调用点要传「自己的 _fp - 被调者帧大小」，所以只要调用了需要 _fp 的函数，
+    // 调用者自己就必须持有帧基址（哪怕它一个内存槽都没有）。
+    bool exprCallsFrame(EP e, const vector<char>& nf) {
+        if (!e) return false;
+        switch (e->k) {
+        case Expr::CallE: {
+            map<string, int>::const_iterator it = ip->fnByName.find(e->s);
+            if (it != ip->fnByName.end() && nf[it->second]) return true;
+            for (size_t i = 0; i < e->kids.size(); ++i)
+                if (exprCallsFrame(e->kids[i], nf)) return true;
+            return false;
+        }
+        case Expr::RefE:
+            if (e->ty >= 0 && gTypes.kindOf(e->ty) == TY_FN && !e->kids.empty()) {   // ${f}{…}：按函数下标派发
+                for (size_t i = 0; i < nf.size(); ++i) if (nf[i]) return true;
+            }
+            for (size_t i = 0; i < e->kids.size(); ++i)
+                if (exprCallsFrame(e->kids[i], nf)) return true;
+            return false;
+        case Expr::PipeE:
+            if (e->b) {                                                // x | ${f}：间接调用
+                for (size_t i = 0; i < nf.size(); ++i) if (nf[i]) return true;
+            } else {
+                map<string, int>::const_iterator it = ip->fnByName.find(e->s);
+                if (it != ip->fnByName.end() && nf[it->second]) return true;
+            }
+            if (exprCallsFrame(e->a, nf) || exprCallsFrame(e->b, nf)) return true;
+            return false;
+        case Expr::UnE:
+            return exprCallsFrame(e->a, nf);
+        case Expr::BinE:
+            return exprCallsFrame(e->a, nf) || exprCallsFrame(e->b, nf);
+        case Expr::UnitE:
+            return exprCallsFrame(e->a, nf);
+        case Expr::ListE:
+            for (size_t i = 0; i < e->kids.size(); ++i)
+                if (exprCallsFrame(e->kids[i], nf)) return true;
+            return false;
+        default:
+            return false;                       // Num / StrE / FnE（FnE 体是独立函数）
+        }
+    }
+
+    bool stmtCallsFrame(SP s, const vector<char>& nf) {
+        switch (s->k) {
+        case Stmt::DeclS:   return s->decl ? exprCallsFrame(s->decl->init, nf) : false;
+        case Stmt::AssignS: return exprCallsFrame(s->e, nf) || exprCallsFrame(s->e2, nf);
+        case Stmt::IfS:
+        case Stmt::WhileS: {
+            if (exprCallsFrame(s->e, nf) || exprCallsFrame(s->e2, nf)) return true;
+            for (size_t i = 0; i < s->body.size(); ++i)
+                if (stmtCallsFrame(s->body[i], nf)) return true;
+            return false;
+        }
+        case Stmt::RetS:    return exprCallsFrame(s->e, nf);
+        case Stmt::OutS:
+        case Stmt::InS: {
+            if (exprCallsFrame(s->e, nf)) return true;
+            for (size_t i = 0; i < s->args.size(); ++i)
+                if (exprCallsFrame(s->args[i], nf)) return true;
+            return false;
+        }
+        case Stmt::ExprS:   return exprCallsFrame(s->e, nf);
+        default:            return false;
+        }
+    }
+
+    bool bodyCallsFrame(const vector<SP>& body, const vector<char>& nf) {
+        for (size_t i = 0; i < body.size(); ++i)
+            if (stmtCallsFrame(body[i], nf)) return true;
+        return false;
+    }
+
     string emit(Interp& I, const vector<DP>& topDecls, const vector<SP>& mainBody) {
         globals = &I.globals;
         ip = &I;
@@ -3024,18 +3118,22 @@ struct CEmit {
         o += "typedef union { long long i; double d; } Cell;\n";
         o += "static Cell _mem[" + fmt("%lld", (long long)I.memSize) + "];\n";
         o += "#define _SP_TOP " + fmt("%lld", (long long)I.memSize) + "\n";
-        o += "static char _sarena[65536]; static int _stop = 0;\n";
+        o += "/* 字符串分配器：1 MB 分块 malloc，指针永远有效（不回收，与解释器的字符串池一致） */\n";
+        o += "#define _SBLK (1 << 20)\n";
+        o += "static char* _sblk = 0; static int _sleft = 0;\n";
+        o += "static char* _salloc(int n) {\n"
+             "  if (n > _SBLK / 2) { char* p = (char*)malloc((size_t)n); if (!p) { fprintf(stderr, \"error: out of memory\\n\"); exit(2); } return p; }\n"
+             "  if (_sleft < n) { _sblk = (char*)malloc(_SBLK); if (!_sblk) { fprintf(stderr, \"error: out of memory\\n\"); exit(2); } _sleft = _SBLK; }\n"
+             "  char* p = _sblk; _sblk += n; _sleft -= n; return p;\n}\n";
         o += "static int64_t n_strcat(const char* x, const char* y) {\n"
 
              "  int n=(int)strlen(x), m=(int)strlen(y);\n"
-             "  if (_stop+n+m+1 > (int)sizeof(_sarena)) { fprintf(stderr, \"error: string arena full\\n\"); exit(2); }\n"
-             "  char* p=_sarena+_stop; memcpy(p,x,n); memcpy(p+n,y,m); p[n+m]=0; _stop+=n+m+1;\n"
+             "  char* p=_salloc(n+m+1); memcpy(p,x,n); memcpy(p+n,y,m); p[n+m]=0;\n"
              "  return (int64_t)(intptr_t)p;\n}\n";
         o += "static int64_t n_readline(void) {\n"
              "  char tmp[1024]; if (!fgets(tmp,sizeof tmp,stdin)) tmp[0]=0;\n"
              "  int n=(int)strlen(tmp); while (n>0 && (tmp[n-1]=='\\n'||tmp[n-1]=='\\r')) tmp[--n]=0;\n"
-             "  if (_stop+n+1 > (int)sizeof(_sarena)) { fprintf(stderr, \"error: string arena full\\n\"); exit(2); }\n"
-             "  char* p=_sarena+_stop; memcpy(p,tmp,n+1); _stop+=n+1; return (int64_t)(intptr_t)p;\n}\n";
+             "  char* p=_salloc(n+1); memcpy(p,tmp,n+1); return (int64_t)(intptr_t)p;\n}\n";
         // 静态区上界：栈往下长，越过它就是踩静态变量（解释器在 callFunc 里同样检查）
         o += "#define _SBASE " + fmt("%lld", (long long)I.staticBase) + "\n\n";
         // 库函数前置（必须在 _mem 之后：read/write 要直接访问内存）
@@ -3052,6 +3150,14 @@ struct CEmit {
         // topDecls 的初值在 main() 开头按源码顺序补发（见下方「静态初始化」）
         needFp.assign(I.funcs.size(), 0);
         for (size_t i = 0; i < I.funcs.size(); ++i) needFp[i] = fnNeedsFrame(I.funcs[i]);
+        // 传播：f 调用了需要 _fp 的 g ⇒ f 自己也必须持有帧基址（否则调用点无从取 _fp）
+        for (bool changed = true; changed; ) {
+            changed = false;
+            for (size_t i = 0; i < I.funcs.size(); ++i) {
+                if (needFp[i]) continue;
+                if (bodyCallsFrame(I.funcs[i].body, needFp)) { needFp[i] = 1; changed = true; }
+            }
+        }
 
         // 2) 前向声明（按下标命名：o_f0, o_f1, …）
         for (size_t i = 0; i < I.funcs.size(); ++i) {
@@ -3129,6 +3235,7 @@ struct CEmit {
         // 4) main（O{} 体：静态作用域）
         curBody = 0;
         loc.clear();
+        pvar.clear(); pty.clear();          // 不能沿用最后一个函数里寄存器化的局部名
         lend = "_lend_main";
         retCT = "int64_t";
         curRetTy = gTypes.iInt;

@@ -309,3 +309,23 @@ O{ .{double; sqrt{2.0}} }
 - 端到端验证：`tests/cc/sqlite.o` 用 O 打开内存库、建表、插入、关闭，rc 全 0，并打出 SQLite 版本号
 - `run_tests.sh`：C 互操作组遇到不存在的 `#link` 全路径时跳过（跨平台友好）；新增「handle 禁止算术」检查
 - SPEC §5.4/§5.6 补 handle；全套 **95/95**
+
+### 二十八、5 个后端 bug 修复（来自 o-projects 实测）
+
+用 6 个真实项目（1603 行）压出来的问题，全部已修 + 回归用例：
+
+| # | bug | 修法 | 探针 |
+|---|---|---|---|
+| A | 无帧函数调用「需要 `_fp`」的函数 → 生成的 C 未声明 `_fp` | `needFp` 做不动点传播 | `_frame_fwd.o` |
+| B | 函数内寄存器化的局部名泄漏到 main | 进 main 前清空 `pvar/pty` | `_pvar_main.o` |
+| C | 字符串 arena 64 KB 打满 → 与解释器不一致 | 改为 1 MB 分块 malloc 的 bump 分配器 | `_strcat_grow.o` |
+| D | `INT_MIN / -1` 在 C 里是 UB，两端结果不同 | 整数 `+ - *` 用 uint32，`/ %` 用 int64 | `_intmin_div.o` |
+| E | 超出 int32 的字面量：解释器不截断、C 后端截断 | 解析期就截断到 int32 | `_lit_trunc.o` |
+
+另外：`examples/filebatch.o` 与 `examples/refparam.o` 本来就有**静默重叠**
+（`buf` 压在 `h`/`n` 上，read 把文件句柄覆盖了），已修正区间。
+
+> 评估过「显式区间压到自动变量上默认告警」，但那会改动 §12.4 的冻结决议（默认静默），
+> 本轮**未采纳**，保留 `--walias` 才提示；是否改默认留给语言作者决定。
+
+测试 94 → **100**；性能 fib(40) 0.834 → 0.853 s（intBin32 的代价，约 −2%）。

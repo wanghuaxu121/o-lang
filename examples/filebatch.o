@@ -8,7 +8,7 @@ O{
     puts{${h}, "line one\nline two\n"}
     close{${h}}
 
-    &{char;buf} = {char{0;63}} = {}
+    &{char;buf} = {char{8;71}} = {}
     &{int;n} = {0}
     ${h} = open{"examples\\batch.txt", "r"}
     ${n} = read{${h}, ${buf}, {64}}
