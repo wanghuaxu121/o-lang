@@ -1,0 +1,10 @@
+// SPEC §5.3 // struct P { … } 新式声明 + void 返回类型
+struct Point { int x; int y; }
+void show(int x, int y) { print("%d,%d\n", x, y); }
+O{
+    Point p;
+    p.x = 3;
+    p.y = 4;
+    print("%d %d\n", p.x, p.y);
+    show(p.x, p.y);
+}

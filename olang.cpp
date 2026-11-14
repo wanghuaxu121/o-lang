@@ -644,7 +644,8 @@ struct Parser {
                 continue;
             }
             if (isId("extern")) { externDecl(); continue; }
-            if (is(T_ID) && gTypes.find(cur.s) >= 0 && nxt.k == T_ID) {
+            if (isId("struct") && nxt.k == T_ID) { topDecls.push_back(structDecl()); continue; }
+            if (is(T_ID) && (gTypes.find(cur.s) >= 0 || cur.s == "void") && nxt.k == T_ID) {
                 topDecls.push_back(cdecl(true));
                 continue;
             }
@@ -836,11 +837,44 @@ struct Parser {
         return s;
     }
 
+    // struct P { int x; int y; } → 与 &{struct;P} = {{int;x},{int;y}} 等价
+    DP structDecl() {
+        int ln = cur.line;
+        advance();
+        string nm = expectId("结构体名");
+        expect(T_LBRACE, "'{'");
+        vector<string> fnames; vector<int> ftys;
+        while (!is(T_RBRACE)) {
+            int fl = cur.line;
+            string ft = expectId("字段类型");
+            int fti = gTypes.find(ft);
+            if (fti < 0) throw Err("未知字段类型 '" + ft + "'", fl);
+            fnames.push_back(expectId("字段名")); ftys.push_back(fti);
+            if (is(T_SEMI)) advance();
+        }
+        expect(T_RBRACE, "'}'");
+        if (is(T_SEMI)) advance();
+        int idx = gTypes.add(nm, TY_STRUCT, 0);
+        int ofs = 0;
+        for (size_t i = 0; i < fnames.size(); ++i) {
+            if (gTypes.kindOf(ftys[i]) == TY_FN) throw Err("struct 字段不能是 fn 类型", ln);
+            gTypes.t[idx].fieldType[fnames[i]] = ftys[i];
+            gTypes.t[idx].fieldOfs[fnames[i]] = ofs;
+            gTypes.t[idx].fieldOrder.push_back(fnames[i]);
+            ofs += gTypes.cellsOf(ftys[i]);
+        }
+        gTypes.t[idx].cells = ofs;
+        DP d(new Decl());
+        d->line = ln; d->type = "struct"; d->name = nm; d->ty = idx; d->isType = true;
+        return d;
+    }
+
     // C 风格声明：int x = 5;  /  int a[0..9];  /  int f(int a, int& b) { … }
     DP cdecl(bool allowFn) {
         int ln = cur.line;
         string ty = expectId("类型名");
-        int ti = gTypes.find(ty);
+        bool isVoid = (ty == "void");
+        int ti = isVoid ? gTypes.iInt : gTypes.find(ty);
         if (ti < 0) throw Err("未知类型 '" + ty + "'", ln);
         string nm = expectId("变量名");
         if (scopeNames.count(nm))
@@ -886,6 +920,12 @@ struct Parser {
             d->body = block();
             scopeNames = saved;
             d->isFn = true;
+            if (isVoid) {                                 // void f() ≡ int f() { … return 0; }
+                SP r = wrap(Stmt::RetS);
+                EP z = mk(Expr::Num); z->num = 0; z->litTy = gTypes.iInt;
+                r->e = z; r->line = ln;
+                d->body.push_back(r);
+            }
             return d;
         }
         if (is(T_LBRACK)) {                               // 显式区间 [a..b]

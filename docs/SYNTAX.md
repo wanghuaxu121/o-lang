@@ -4,7 +4,6 @@
 
 > **实况（2026-11-14，实测）**：本页 §1/§2/§4/§5 的标量、数组、函数、引用参数、控制流
 > 均已实现；下列写法**尚未实现**，会直接报语法错误：
-> `void` 返回类型、`struct P { ... }` 新式声明、
 > `for` 循环。
 > 字符字面量 `'A'` 与一元 `!x` 已实现（`'A'` 的类型是 int，存进 `char` 变量才按字符输出）。
 
@@ -37,8 +36,9 @@ str s = "hello";
 
 int a[0..9];              // 显式区间：10 个单元，地址 0..9
 int b[10..19] = {1};      // 带初值（其余补 0）
-struct P { int x; int y; }
-P p;                      // 结构体
+struct P { int x; int y; }   // 新式声明（等价于旧语法 &{struct;P} = …）
+P p;                      // 结构体变量
+void show(int a) { print(a); }   // void = 隐式 return 0
 ```
 
 类型：`int` `double` `float` `bool` `char` `str` `handle` `fn` `struct`

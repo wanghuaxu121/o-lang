@@ -423,3 +423,14 @@ s.len();            // 零参方法，仍走原有路径 → 5
 
 - 解析层把 `接收者.m(args)` 降级为 `m(接收者, args)`，**两端零改动**
 - 新探针 `p_methods`；测试 **107 项**
+
+### 三十六、v2.1-S3：struct 新式声明 + void
+
+```o
+struct Point { int x; int y; }      // ≡ &{struct;Point} = {{int;x},{int;y}}
+void show(int x, int y) { print("%d,%d\n", x, y); }   // void ≡ int + 隐式 return 0
+```
+
+- 结构体按字段声明顺序布局，偏移由单元数累加，与旧语法完全一致
+- `void` 在函数体末尾自动补 `return 0`，调用方可以忽略返回值
+- 新探针 `p_struct_void`；测试 **107 项**
