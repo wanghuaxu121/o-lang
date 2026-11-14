@@ -896,9 +896,6 @@ struct Parser {
                     string pn = expectId("参数名");
                     if (scopeNames.count(pn))
                         throw Err("参数名重复 '" + pn + "'", pl);
-                    if (!ref && gTypes.kindOf(pti) == TY_STRUCT)
-                        throw Err("结构体不能按值传参（会只拷第一个单元）：请用引用参数 " + pt + "& " + pn
-                                  + " 或数组形参 " + pt + " " + pn + "[0..N]", pl);
                     int pe = 1;
                     if (is(T_LBRACK)) {                  // 数组形参：int a[0..3] → &a + 长度 4
                         advance();
@@ -910,6 +907,9 @@ struct Parser {
                         ref = true;
                         pe = (int)(hi - lo + 1);
                     }
+                    if (!ref && gTypes.kindOf(pti) == TY_STRUCT)
+                        throw Err("结构体不能按值传参（会只拷第一个单元）：请用引用参数 " + pt + "& " + pn
+                                  + " 或数组形参 " + pt + " " + pn + "[0..N]", pl);
                     d->params.push_back(pn); d->paramTy.push_back(pti);
                     d->paramRef.push_back(ref ? 1 : 0);
                     d->paramElems.push_back(pe);
