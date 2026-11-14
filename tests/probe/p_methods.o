@@ -1,0 +1,9 @@
+// SPEC §5.5 // 带参方法：s.find(x) 降级为 find(s, x)
+#{"str"}
+O{
+    str s = "a,b,c";
+    print("%d\n", s.find(","));
+    print("%s\n", s.substr(2, 1));
+    print("%d\n", s.len());
+    print("%c\n", s.charat(0));
+}

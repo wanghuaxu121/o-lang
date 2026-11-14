@@ -947,10 +947,24 @@ struct Parser {
             if (is(T_DOT)) {
                 advance();
                 string fld = expectId("字段名");
-                if (is(T_LPAREN)) {                       // 方法：s.len() / s.size()
+                if (is(T_LPAREN) && nxt.k == T_RPAREN) {  // 零参方法：s.len() / s.size()
                     advance();
                     expect(T_RPAREN, "')'");
                     e->method = fld;
+                    continue;
+                }
+                if (is(T_LPAREN)) {                       // 带参方法：s.find(x) → find(s, x)
+                    advance();
+                    EP call = mk(Expr::CallE);
+                    call->s = fld;
+                    call->line = e->line;
+                    call->kids.push_back(e);              // 接收者作为第一个实参
+                    if (!is(T_RPAREN)) {
+                        call->kids.push_back(expr());
+                        while (is(T_COMMA)) { advance(); call->kids.push_back(expr()); }
+                    }
+                    expect(T_RPAREN, "')'");
+                    e = call;
                     continue;
                 }
                 e->fields.push_back(fld);
