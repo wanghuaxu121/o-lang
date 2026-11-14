@@ -60,7 +60,7 @@ b=$("$BIN" "$T/t6b.o" 2>&1)
 printf '&{int;f} = o{{int;a}}{ &{int;b} = {int{0;3}} = {} ?{0} }\nO{ .{int; f{1}} }\n' > "$T/t7.o"
 "$BIN" "$T/t7.o" >/dev/null 2>&1 && no 7a "函数内显式地址未报错" || ok 7a "函数体内 int{x;y} 报错"
 printf 'O{ &{int;big} = {int{0;1025}} = {} }\n' > "$T/t7b.o"
-"$BIN" "$T/t7b.o" >/dev/null 2>&1 && no 7b "静态区溢出未报错" || ok 7b "静态区溢出报错"
+"$BIN" "$T/t7b.o" --mem-size 1024 >/dev/null 2>&1 && no 7b "静态区溢出未报错" || ok 7b "静态区溢出报错"
 
 # 8 别名
 cat > "$T/t8.o" <<'O'
