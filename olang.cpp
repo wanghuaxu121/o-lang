@@ -1543,7 +1543,8 @@ struct Interp {
     int stackTop;                      // 栈向下增长
     bool mapping;
 
-    bool warnAlias = false;        // --walias：显式地址区间重叠时给提示
+    bool warnAlias = false;        // --walias：所有显式区间重叠都提示
+    bool warnAccidental = true;    // 默认：显式区间压到自动变量上（几乎必是笔误）给提示；--no-walias 关闭
     int memSize;                   // 本次运行的地址空间大小（单元数）
     Interp(int n = MEM_SIZE)
         : memSize(n), mem(n), stackTop(n), mapping(false), nextFree(0), staticBase(0) {}
@@ -1634,11 +1635,12 @@ struct Interp {
             char mb[128];
             snprintf(mb, sizeof mb, "%4d  %-8s x%-3d size=%d  %s", d->addr, d->type.c_str(), d->elems, d->size, d->name.c_str());
             mapLines.push_back(make_pair(d->name, string(mb)));
-            if (warnAlias && d->hasFence) {           // §12.4：允许别名，默认静默，--walias 才提示
+            if (d->hasFence) {                         // §12.4：显式别名静默；显式压到自动变量上默认提示
                 for (size_t k = 0; k < mapEntries.size(); ++k) {
                     const MapEntry& e = mapEntries[k];
                     if (!(d->addr < e.addr + e.cells && e.addr < d->addr + d->size)) continue;
                     bool accidental = !e.hasFence;    // 自动分配的地址是编译器选的，重叠几乎必是笔误
+                    if (!warnAlias && !(accidental && warnAccidental)) continue;
                     fprintf(stderr, "warning: 地址区间 %s[%d..%d] 与 %s[%d..%d] 重叠（别名）%s\n",
                             d->name.c_str(), d->addr, d->addr + d->size - 1,
                             e.name.c_str(), e.addr, e.addr + e.cells - 1,
@@ -3696,7 +3698,8 @@ int main(int argc, char** argv) {
             "  --cc          生成 C → gcc 编译 → 直接运行（需要 gcc 在 PATH 里）\n"
             "  --rebuild     --cc 强制重新编译（默认会复用没变过的 .gen.exe）\n"
             "  --mem-size N  本次运行/生成的地址空间大小（单元数，默认 %d，上限 %d）\n"
-            "  --walias      显式地址区间重叠时给提示（默认静默，见 SPEC §12.4）\n"
+            "  --walias      所有显式区间重叠都提示（含真别名；默认只提示「压到自动变量上」）\n"
+            "  --no-walias   关闭重叠提示（默认对「显式压自动变量」告警）\n"
             "  --version     打印版本与构建信息\n",
             (int)MEM_SIZE, (int)MEM_SIZE_MAX);
         return argc < 2 ? 1 : 0;
@@ -3710,6 +3713,7 @@ int main(int argc, char** argv) {
     bool wantTrace = false;
     bool wantRebuild = false;
     bool wantWalias = false;
+    bool wantNoWalias = false;
     int cliMem = 0;                   // --mem-size N
     bool cliMemGiven = false;         // 是否显式给了 --mem-size
     for (int i = 2; i < argc; ++i) {
@@ -3723,6 +3727,7 @@ int main(int argc, char** argv) {
         else if (a == "--trace") wantTrace = true;
         else if (a == "--rebuild") wantRebuild = true;
         else if (a == "--walias") wantWalias = true;
+        else if (a == "--no-walias") wantNoWalias = true;
         else if (a == "--mem-size") {
             if (i + 1 < argc) { cliMem = atoi(argv[++i]); cliMemGiven = true; }
             else { fprintf(stderr, "错误: --mem-size 后面要跟单元数\n"); return 1; }
@@ -3748,6 +3753,7 @@ int main(int argc, char** argv) {
 
         Interp it(memSize);
         it.warnAlias = wantWalias;
+        it.warnAccidental = !wantNoWalias;
         it.mapping = wantMap;
 
         // 布局：顶层声明 → 匿名函数 → O{} 体（静态）
