@@ -1,0 +1,11 @@
+// v2 语法回归：字符字面量 / 一元逻辑非 / 重复声明报错（重复声明单独测）
+O{
+    char c = 'A';
+    print(c);
+    print(" ");
+    int x = 0;
+    if (!x) { print("no"); }
+    print(!0);
+    print(!5);
+    print("\n");
+}

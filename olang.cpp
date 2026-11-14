@@ -166,6 +166,28 @@ struct Lexer {
             t.k = T_ID; t.s = s;
             return t;
         }
+        if (c == '\'') {
+            ++p;
+            if (p >= src.size()) throw Err("字符字面量没有结束的引号", t.line);
+            int v = 0;
+            if (src[p] == '\\' && p + 1 < src.size()) {
+                char e = src[p + 1];
+                if (e == 'n') v = 10;
+                else if (e == 't') v = 9;
+                else if (e == '\\') v = 92;
+                else if (e == '\'') v = 39;
+                else if (e == '0') v = 0;
+                else v = (unsigned char)e;
+                p += 2;
+            } else {
+                v = (unsigned char)src[p];
+                p += 1;
+            }
+            if (p >= src.size() || src[p] != '\'') throw Err("字符字面量只能包含一个字符", t.line);
+            ++p;
+            t.k = T_NUM; t.n = v; t.isFlt = false;
+            return t;
+        }
         if (c == '"') {
             ++p;
             string s;
@@ -487,6 +509,7 @@ struct Parser {
     Lexer lx;
     Token cur, nxt;
     vector<shared_ptr<Expr> > anonFns;   // 所有 o{} 字面量，layout 时统一分配
+    map<string,int> scopeNames;          // 当前函数 / O{} 作用域里已声明的名字（O 的块不引入新作用域）
 
     explicit Parser(const string& s) : lx(s) {
         cur = lx.next();
@@ -616,6 +639,7 @@ struct Parser {
         }
         if (!isId("O")) throw Err("缺少唯一的入口 O{...}", cur.line);
         advance();
+        scopeNames.clear();                      // O{} 体是新的静态作用域
         mainBody = block();
         if (!is(T_END)) throw Err("O{} 之后还有内容", cur.line);
     }
@@ -806,6 +830,8 @@ struct Parser {
         int ti = gTypes.find(ty);
         if (ti < 0) throw Err("未知类型 '" + ty + "'", ln);
         string nm = expectId("变量名");
+        if (scopeNames.count(nm))
+            throw Err("重复声明 '" + nm + "'（O 的块不引入新作用域，同一个函数里请换名）", ln);
         DP d(new Decl());
         d->line = ln; d->type = ty; d->name = nm; d->ty = ti; d->elems = 1;
         if (allowFn && is(T_LPAREN)) {                    // 函数定义
@@ -819,6 +845,8 @@ struct Parser {
                     bool ref = false;
                     if (is(T_AMP)) { ref = true; advance(); }
                     string pn = expectId("参数名");
+                    if (scopeNames.count(pn))
+                        throw Err("参数名重复 '" + pn + "'", pl);
                     d->params.push_back(pn); d->paramTy.push_back(pti);
                     d->paramRef.push_back(ref ? 1 : 0);
                     d->paramElems.push_back(1);
@@ -828,7 +856,11 @@ struct Parser {
             }
             expect(T_RPAREN, "')'");
             if (!is(T_LBRACE)) throw Err("函数定义缺少函数体", ln);
+            map<string,int> saved = scopeNames;
+            scopeNames.clear();
+            for (size_t k = 0; k < d->params.size(); ++k) scopeNames[d->params[k]] = 1;
             d->body = block();
+            scopeNames = saved;
             d->isFn = true;
             return d;
         }
@@ -856,9 +888,22 @@ struct Parser {
                 expect(T_RBRACE, "'}'");
                 d->init = lst;
             }
-            else d->init = expr();
+            else {
+                EP ini = expr();
+                // C 风格 int b = a; 是「取值拷贝」。旧语法里裸 ${x} 不能当一等值，
+                // 这里把裸引用包成求值单元（UnitE），语义就是读值而不是存引用。
+                if (ini->k == Expr::RefE && !ini->hasCast && ini->method.empty()) {
+                    EP u = mk(Expr::UnitE);
+                    u->a = ini;
+                    u->line = ini->line;
+                    u->ty = -1;
+                    ini = u;
+                }
+                d->init = ini;
+            }
         }
         if (is(T_SEMI)) advance();
+        scopeNames[nm] = 1;
         return d;
     }
 
@@ -1162,7 +1207,11 @@ struct Parser {
             EP e = mk(Expr::UnE); e->op = op; e->a = unary(); e->line = ln;
             return e;
         }
-        // 一元 ! 在 SPEC 里不存在（! 只作 break），这里不实现
+        if (is(T_BANG)) {                       // 表达式里的 !x = 逻辑非（语句位置的 ! 仍是 break）
+            int ln = cur.line; advance();
+            EP e = mk(Expr::UnE); e->op = T_BANG; e->a = unary(); e->line = ln;
+            return e;
+        }
         return primary();
     }
 
@@ -1989,7 +2038,7 @@ Val Interp::eval(EP e) {
             if (v.ty == TY_DBL) return mkDblV(-v.d);
             return mkIntV((long long)(int32_t)(-v.i));
         }
-        if (e->op == T_TILDE) return mkBoolV(isTrueV(v) ? 0 : 1);
+        if (e->op == T_TILDE || e->op == T_BANG) return mkBoolV(isTrueV(v) ? 0 : 1);
         return v;                          // ^ 显式解引用：无操作
     }
     case Expr::BinE: {
@@ -2164,7 +2213,7 @@ int Interp::annTy(EP e) {
     }
     case Expr::UnE: {
         int t = annTy(e->a);
-        if (e->op == T_TILDE) return e->ty = gTypes.iBool;
+        if (e->op == T_TILDE || e->op == T_BANG) return e->ty = gTypes.iBool;
         if (e->op == T_MINUS) return e->ty = (isFloatTy(t) ? gTypes.iDbl : gTypes.iInt);
         return e->ty = t;
     }
@@ -2232,6 +2281,13 @@ void Interp::annStmt(SP s) {
                 throw Err("str 变量不能用非字符串值初始化", s->line);
             if (dt != TY_STR && itk == TY_STR)
                 throw Err("非 str 变量不能用字符串字面量初始化", s->line);
+            // 结构体不能整体拷贝：RefE/UnitE(RefE) 会静默得到全零，直接报错更诚实
+            if (dt == TY_STRUCT) {
+                EP r = ini;
+                if (r->k == Expr::UnitE && r->a) r = r->a;
+                if (r->k == Expr::RefE && r->fields.empty() && !r->hasCast)
+                    throw Err("结构体不能整体赋值/拷贝，请逐字段赋值（p.x = q.x）", s->line);
+            }
             // fn 变量不能用整数字面量初始化：那会被当成"函数下标"，等于凭空指向某个函数
             if (dt == TY_FN && s->decl->init->k == Expr::Num)
                 throw Err("fn 变量不能用整数字面量初始化（写 {} 表示\"还没有函数\"）", s->line);
@@ -2927,7 +2983,7 @@ struct CEmit {
             return callExpr(e->s, one);
         }
         case Expr::UnE:
-            if (e->op == T_TILDE) return "((int64_t)((int32_t)(" + asI(e->a) + ") ? 0 : 1))";
+            if (e->op == T_TILDE || e->op == T_BANG) return "((int64_t)((int32_t)(" + asI(e->a) + ") ? 0 : 1))";
             if (e->op == T_MINUS) {
                 if (isF(e->ty)) return "(-(" + asD(e->a) + "))";
                 return "((int64_t)(int32_t)(-(int32_t)(" + asI(e->a) + ")))";

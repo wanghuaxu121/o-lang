@@ -1,0 +1,22 @@
+// v2 前端回归：C 风格声明的初始化必须是「取值拷贝」
+// int x = n;  int v = a[i];  int z = p.y;  str t = s;
+int id(int n) {
+    int x = n;
+    int y = x;
+    return y;
+}
+&{struct;P} = {{int;x}, {int;y}}
+O{
+    int a[0..3] = {10, 20, 30, 40};
+    int i = 2;
+    int v = a[i];
+    str s = "hi";
+    str t = s;
+    P p;
+    p.y = 7;
+    int z = p.y;
+    print(id(5)); print(" ");
+    print(v); print(" ");
+    print(t); print(" ");
+    print(z); print("\n");
+}
